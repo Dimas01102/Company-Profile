@@ -1,32 +1,56 @@
-# Dependencies
-node_modules/
-.pnpm-store/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Production / Build outputs
-dist/
+# testing
+/coverage
+
+# storage
+/storage-private/
+/public/uploads/
+
+# next.js
+/.next/
+/out/
 build/
-.output/
 
-# TanStack Router / Temporary cache
-.tanstack/
-.tmp/
+# production
+/build
 
-# Environment variables (Sangat penting agar rahasia API tidak bocor)
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.example
+# misc
+.DS_Store
+*.pem
 
-# Logs
+# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
+.pnpm-debug.log*
+*.log
 
-# Editor & System files
-.DS_Store
+# env 
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+/src/generated/prisma
+
+# editor / OS
+.vscode/
+.idea/
 Thumbs.db
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+
+# agent
+.claude/
+.agents/
