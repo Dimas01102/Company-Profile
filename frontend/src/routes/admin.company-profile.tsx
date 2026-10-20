@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -40,6 +40,9 @@ import {
   EmptyState,
   StatusPill,
 } from "@/components/admin/ui";
+import { AppearsOn, FullPreview, TabPreview } from "@/components/admin/CompanyTabPreview";
+import { getErrorMessage } from "@/lib/api-client";
+import { coordinateEmbedUrl, parseMapInput } from "@/lib/company-display";
 import {
   getCompanyProfile,
   updateCompanyProfile,
@@ -49,6 +52,7 @@ import {
   updateMilestone,
   deleteMilestone,
   reorderMilestone,
+  resolveMapLink,
   type CompanyProfile,
   type Milestone,
   type CoreValue,
@@ -57,14 +61,17 @@ import {
 export const Route = createFileRoute("/admin/company-profile")({
   head: () => ({
     meta: [
-      { title: "Company Profile — Konektra Admin Console" },
+      { title: "Company Profile | Konektra Admin Console" },
       {
         name: "description",
         content:
           "Manage company information, story, vision and mission, core values, contact details, SEO, and milestones shown on the public website.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Company Profile — Konektra Admin Console" },
+      {
+        property: "og:title",
+        content: "Company Profile, Konektra Admin Console",
+      },
       {
         property: "og:description",
         content: "Company information management for PT Batam Konektra Jaya.",
@@ -102,7 +109,14 @@ const iconOptions = [
 ] as const;
 
 function emptyMilestone(order: number): Omit<Milestone, "id"> {
-  return { year: "", title: "", description: "", image: "", order, active: true };
+  return {
+    year: "",
+    title: "",
+    description: "",
+    image: "",
+    order,
+    active: true,
+  };
 }
 
 function CompanyProfilePage() {
@@ -120,6 +134,22 @@ function CompanyProfilePage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [ogImageFile, setOgImageFile] = useState<File | null>(null);
+  const [profilePdfFile, setProfilePdfFile] = useState<File | null>(null);
+  const logoUrl = useFileUrl(logoFile, form?.logoName ?? "");
+  const ogImageUrl = useFileUrl(ogImageFile, form?.ogImageName ?? "");
+  const pdfUrl = useFileUrl(profilePdfFile, form?.profilePdfName ?? "");
+
+  // Location: the pasted Google Maps link is converted to an embed URL and
+  // coordinates as soon as it is understood.
+  const [mapInput, setMapInput] = useState("");
+  const [mapStatus, setMapStatus] = useState<{
+    kind: "busy" | "ok" | "error";
+    text: string;
+  } | null>(null);
+  const mapTimer = useRef<number | null>(null);
+  const latestMapInput = useRef("");
 
   // Milestones
   const [milestones, setMilestones] = useState<Milestone[] | null>(null);
@@ -129,6 +159,7 @@ function CompanyProfilePage() {
   >(null);
   const [milestoneErrors, setMilestoneErrors] = useState<Record<string, string>>({});
   const [milestoneBusy, setMilestoneBusy] = useState(false);
+  const [milestoneImageFile, setMilestoneImageFile] = useState<File | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Milestone | null>(null);
 
   function load() {
@@ -183,9 +214,43 @@ function CompanyProfilePage() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) e.email = "Enter a valid email address.";
     if (!f.phone.trim()) e.phone = "Phone number is required.";
     if (!f.address.trim()) e.address = "Address is required.";
-    if (f.metaTitle.length > 60) e.metaTitle = "Keep the meta title under 60 characters.";
-    if (f.metaDescription.length > 160)
-      e.metaDescription = "Keep the meta description under 160 characters.";
+    // Same limits as the API, so the error shows on the right tab before saving.
+    const maxLengths: [keyof CompanyProfile, number, string][] = [
+      ["name", 255, "Company name"],
+      ["tagline", 255, "Tagline"],
+      ["address", 255, "Address"],
+      ["phone", 30, "Phone"],
+      ["postalCode", 10, "Postal code"],
+      ["keywords", 255, "Keywords"],
+    ];
+    for (const [key, max, label] of maxLengths) {
+      if (String(f[key]).length > max && !e[key])
+        e[key] = `${label} is too long (max ${max} characters).`;
+    }
+    if (f.whatsapp.length > 30) e.whatsapp = "WhatsApp is too long (max 30 characters).";
+    if (f.city.length > 100) e.city = "City is too long (max 100 characters).";
+    if (f.province.length > 100) e.province = "Province is too long (max 100 characters).";
+    if (f.businessHours.length > 1000)
+      e.businessHours = "Business hours are too long (max 1000 characters).";
+
+    const lat = f.latitude.trim();
+    const lng = f.longitude.trim();
+    if (lat && !(Number.isFinite(Number(lat)) && Math.abs(Number(lat)) <= 90))
+      e.latitude = "Latitude must be a number between -90 and 90.";
+    if (lng && !(Number.isFinite(Number(lng)) && Math.abs(Number(lng)) <= 180))
+      e.longitude = "Longitude must be a number between -180 and 180.";
+    if (!e.latitude && !e.longitude && !!lat !== !!lng)
+      e[lat ? "longitude" : "latitude"] =
+        "Fill in both latitude and longitude, or leave both empty.";
+
+    for (const v of f.coreValues) {
+      if (!v.name.trim()) e[`value-${v.id}`] = "Value name is required (or remove this row).";
+      else if (v.description.length > 500)
+        e[`value-${v.id}`] = "Description is too long (max 500 characters).";
+    }
+    if (f.metaTitle.length > 255) e.metaTitle = "Meta title is too long (max 255 characters).";
+    if (f.metaDescription.length > 500)
+      e.metaDescription = "Meta description is too long (max 500 characters).";
     for (const [key, url] of [
       ["facebook", f.facebook],
       ["instagram", f.instagram],
@@ -203,18 +268,55 @@ function CompanyProfilePage() {
     setErrors(e);
     setSaveError(null);
     if (Object.keys(e).length) {
-      toast.error("Please fix the highlighted fields before saving.");
+      // Errors may sit on a tab that isn't visible, jump to the first one.
+      const tabOf: Record<string, TabId> = {
+        name: "general",
+        tagline: "general",
+        shortDescription: "general",
+        foundedYear: "story",
+        address: "business",
+        phone: "business",
+        email: "business",
+        facebook: "social",
+        instagram: "social",
+        linkedin: "social",
+        youtube: "social",
+        businessHours: "business",
+        postalCode: "business",
+        whatsapp: "business",
+        city: "business",
+        province: "business",
+        keywords: "seo",
+        latitude: "location",
+        longitude: "location",
+        metaTitle: "seo",
+        metaDescription: "seo",
+      };
+      const firstKey = Object.keys(e)[0];
+      if (firstKey.startsWith("value-")) setTab("values");
+      else if (tabOf[firstKey]) setTab(tabOf[firstKey]);
+      toast.error(`Please fix the highlighted fields before saving. ${e[firstKey]}`);
       return;
     }
     setSaving(true);
     try {
-      const next = await updateCompanyProfile(form);
+      const next = await updateCompanyProfile(form, {
+        logoFile: logoFile ?? undefined,
+        ogImageFile: ogImageFile ?? undefined,
+        profilePdfFile: profilePdfFile ?? undefined,
+      });
       setSaved(next);
       setForm(next);
       setEditing(false);
+      setLogoFile(null);
+      setOgImageFile(null);
+      setProfilePdfFile(null);
+      resetMapInput();
       toast.success("Company profile saved successfully.");
-    } catch {
-      setSaveError("Company profile could not be saved. Please try again.");
+    } catch (err) {
+      const message = getErrorMessage(err, "Please try again.");
+      setSaveError(`Company profile could not be saved. ${message}`);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -227,6 +329,7 @@ function CompanyProfilePage() {
     }
     setEditing(false);
     setErrors({});
+    resetMapInput();
   }
 
   function discard() {
@@ -234,6 +337,10 @@ function CompanyProfilePage() {
     setErrors({});
     setEditing(false);
     setConfirmCancel(false);
+    setLogoFile(null);
+    setOgImageFile(null);
+    setProfilePdfFile(null);
+    resetMapInput();
   }
 
   function handleReset() {
@@ -242,10 +349,103 @@ function CompanyProfilePage() {
     toast.success("Fields reset to the default content. Save to apply.");
   }
 
+  // ---- location ----
+  function resetMapInput() {
+    if (mapTimer.current) window.clearTimeout(mapTimer.current);
+    latestMapInput.current = "";
+    setMapInput("");
+    setMapStatus(null);
+  }
+
+  function applyMap(embedUrl: string, latitude: string, longitude: string) {
+    setForm((f) =>
+      f
+        ? {
+            ...f,
+            mapEmbed: embedUrl,
+            ...(latitude && longitude ? { latitude, longitude } : {}),
+          }
+        : f,
+    );
+    setMapStatus({
+      kind: "ok",
+      text:
+        latitude && longitude
+          ? `Link accepted. Latitude ${latitude}, longitude ${longitude} filled in automatically.`
+          : "Link accepted, but it holds no coordinates. Type latitude and longitude below if you want an exact pin.",
+    });
+  }
+
+  function handleMapInput(raw: string) {
+    setMapInput(raw);
+    latestMapInput.current = raw;
+    if (mapTimer.current) window.clearTimeout(mapTimer.current);
+    const value = raw.trim();
+    if (!value) {
+      setMapStatus(null);
+      return;
+    }
+
+    // Normal links, embed links, <iframe> snippets and "lat, lng" text are
+    // understood instantly in the browser.
+    const parsed = parseMapInput(value);
+    if (parsed) {
+      applyMap(parsed.embedUrl, parsed.latitude, parsed.longitude);
+      return;
+    }
+
+    // Short links (maps.app.goo.gl) can only be expanded by the server.
+    if (/^https?:\/\//i.test(value)) {
+      setMapStatus({ kind: "busy", text: "Reading the link..." });
+      mapTimer.current = window.setTimeout(async () => {
+        try {
+          const r = await resolveMapLink(value);
+          if (latestMapInput.current !== raw) return;
+          applyMap(r.embedUrl, r.latitude, r.longitude);
+        } catch (err) {
+          if (latestMapInput.current !== raw) return;
+          setMapStatus({
+            kind: "error",
+            text: getErrorMessage(err, "The link could not be read."),
+          });
+        }
+      }, 450);
+      return;
+    }
+
+    setMapStatus({
+      kind: "error",
+      text: "This is not a Google Maps link. Paste the link from Google Maps (Share > Copy link), an embed code, or type latitude and longitude below.",
+    });
+  }
+
+  function setCoordinate(key: "latitude" | "longitude", value: string) {
+    setForm((f) => {
+      if (!f) return f;
+      const next = { ...f, [key]: value };
+      const lat = next.latitude.trim();
+      const lng = next.longitude.trim();
+      const ok =
+        lat &&
+        lng &&
+        Number.isFinite(Number(lat)) &&
+        Number.isFinite(Number(lng)) &&
+        Math.abs(Number(lat)) <= 90 &&
+        Math.abs(Number(lng)) <= 180;
+      // Typing valid coordinates also moves the map pin.
+      return ok ? { ...next, mapEmbed: coordinateEmbedUrl(lat, lng) } : next;
+    });
+  }
+
   // ---- core values ----
   function setValue(id: string, patch: Partial<CoreValue>) {
     setForm((f) =>
-      f ? { ...f, coreValues: f.coreValues.map((v) => (v.id === id ? { ...v, ...patch } : v)) } : f,
+      f
+        ? {
+            ...f,
+            coreValues: f.coreValues.map((v) => (v.id === id ? { ...v, ...patch } : v)),
+          }
+        : f,
     );
   }
   function addValue() {
@@ -272,6 +472,12 @@ function CompanyProfilePage() {
   }
 
   // ---- milestones ----
+  function openMilestone(draft: Omit<Milestone, "id"> & { id?: string }) {
+    setMilestoneErrors({});
+    setMilestoneImageFile(null);
+    setMilestoneDraft(draft);
+  }
+
   async function saveMilestone() {
     if (!milestoneDraft) return;
     const e: Record<string, string> = {};
@@ -284,18 +490,19 @@ function CompanyProfilePage() {
     setMilestoneBusy(true);
     try {
       if (milestoneDraft.id) {
-        const { id, ...patch } = milestoneDraft;
-        await updateMilestone(id, patch);
+        const { id, ...milestone } = milestoneDraft;
+        await updateMilestone(id, milestone, milestoneImageFile ?? undefined);
         toast.success("Milestone updated successfully.");
       } else {
         const { id: _ignored, ...input } = milestoneDraft;
-        await createMilestone(input);
+        await createMilestone(input, milestoneImageFile ?? undefined);
         toast.success("Milestone added successfully.");
       }
       setMilestoneDraft(null);
+      setMilestoneImageFile(null);
       loadMilestones();
-    } catch {
-      toast.error("Milestone could not be saved.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Milestone could not be saved."));
     } finally {
       setMilestoneBusy(false);
     }
@@ -309,8 +516,8 @@ function CompanyProfilePage() {
       toast.success("Milestone deleted successfully.");
       setDeleteTarget(null);
       loadMilestones();
-    } catch {
-      toast.error("Milestone could not be deleted.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Milestone could not be deleted."));
     } finally {
       setMilestoneBusy(false);
     }
@@ -320,13 +527,26 @@ function CompanyProfilePage() {
     setMilestones((list) =>
       list ? list.map((x) => (x.id === m.id ? { ...x, active: !x.active } : x)) : list,
     );
-    await updateMilestone(m.id, { active: !m.active });
-    toast.success(`Milestone ${!m.active ? "enabled" : "disabled"}.`);
+    try {
+      // The API validates the whole milestone on update, so send all of it,
+      // a bare `{ active }` is rejected (year and title are required).
+      const { id, ...milestone } = m;
+      await updateMilestone(id, { ...milestone, active: !m.active });
+      toast.success(`Milestone ${!m.active ? "enabled" : "disabled"}.`);
+    } catch (err) {
+      // Roll the optimistic switch back so the list matches the database.
+      setMilestones((list) => (list ? list.map((x) => (x.id === m.id ? m : x)) : list));
+      toast.error(getErrorMessage(err, "Milestone could not be updated."));
+    }
   }
 
   async function move(m: Milestone, direction: "up" | "down") {
-    const next = await reorderMilestone(m.id, direction);
-    setMilestones(next);
+    try {
+      const next = await reorderMilestone(m.id, direction);
+      setMilestones(next);
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Milestones could not be reordered."));
+    }
   }
 
   const disabled = !editing;
@@ -414,7 +634,7 @@ function CompanyProfilePage() {
         {dirty && (
           <div className="mb-5">
             <Notice kind="error">
-              Unsaved changes — leaving this page or cancelling will discard them.
+              Unsaved changes, leaving this page or cancelling will discard them.
             </Notice>
           </div>
         )}
@@ -448,6 +668,7 @@ function CompanyProfilePage() {
           <FormSkeleton rows={3} />
         ) : (
           <div className="space-y-6">
+            <AppearsOn tab={tab} />
             {tab === "general" && (
               <Panel
                 title="General information"
@@ -468,20 +689,16 @@ function CompanyProfilePage() {
                     error={errors.tagline}
                     disabled={disabled}
                   />
-                  <div className="grid gap-5 sm:grid-cols-2 lg:col-span-2">
+                  <div className="max-w-md lg:col-span-2">
                     <UploadBox
                       label="Company logo"
                       fileName={form.logoName}
+                      file={logoFile}
                       disabled={disabled}
                       onChange={(v) => set("logoName", v)}
+                      onFileSelect={setLogoFile}
+                      accept="image/svg+xml,image/png,image/jpeg,image/webp"
                       hint="SVG or PNG, transparent background."
-                    />
-                    <UploadBox
-                      label="Favicon"
-                      fileName={form.faviconName}
-                      disabled={disabled}
-                      onChange={(v) => set("faviconName", v)}
-                      hint="PNG, 512 × 512 px."
                     />
                   </div>
                   <div className="lg:col-span-2">
@@ -492,7 +709,7 @@ function CompanyProfilePage() {
                       rows={3}
                       error={errors.shortDescription}
                       disabled={disabled}
-                      hint="Used in the footer and page introductions."
+                      hint="Shown in the footer and as the subtitle at the top of the About page."
                     />
                   </div>
                   <div className="lg:col-span-2">
@@ -598,6 +815,7 @@ function CompanyProfilePage() {
                             label="Value name"
                             value={v.name}
                             onChange={(val) => setValue(v.id, { name: val })}
+                            error={errors[`value-${v.id}`]}
                             disabled={disabled}
                           />
                           <TextAreaField
@@ -679,18 +897,21 @@ function CompanyProfilePage() {
                     label="City"
                     value={form.city}
                     onChange={(v) => set("city", v)}
+                    error={errors.city}
                     disabled={disabled}
                   />
                   <Field
                     label="Province"
                     value={form.province}
                     onChange={(v) => set("province", v)}
+                    error={errors.province}
                     disabled={disabled}
                   />
                   <Field
                     label="Postal code"
                     value={form.postalCode}
                     onChange={(v) => set("postalCode", v)}
+                    error={errors.postalCode}
                     disabled={disabled}
                   />
                   <Field
@@ -704,6 +925,7 @@ function CompanyProfilePage() {
                     label="WhatsApp"
                     value={form.whatsapp}
                     onChange={(v) => set("whatsapp", v)}
+                    error={errors.whatsapp}
                     disabled={disabled}
                   />
                   <Field
@@ -715,11 +937,14 @@ function CompanyProfilePage() {
                     disabled={disabled}
                   />
                   <div className="lg:col-span-2">
-                    <Field
+                    <TextAreaField
                       label="Business hours"
                       value={form.businessHours}
                       onChange={(v) => set("businessHours", v)}
+                      rows={4}
+                      error={errors.businessHours}
                       disabled={disabled}
+                      hint="One row per line, written as: Label: hours. Example: Monday - Friday: 08:00 - 17:00 WIB"
                     />
                   </div>
                 </div>
@@ -727,7 +952,10 @@ function CompanyProfilePage() {
             )}
 
             {tab === "social" && (
-              <Panel title="Social media" description="Links used in the footer and contact page.">
+              <Panel
+                title="Social media"
+                description="Links shown as icons in the website footer. Leave a field empty to hide that icon."
+              >
                 <div className="grid gap-5 lg:grid-cols-2">
                   <Field
                     label="Facebook"
@@ -735,6 +963,7 @@ function CompanyProfilePage() {
                     onChange={(v) => set("facebook", v)}
                     error={errors.facebook}
                     disabled={disabled}
+                    placeholder="https://facebook.com/your-page"
                   />
                   <Field
                     label="Instagram"
@@ -742,6 +971,7 @@ function CompanyProfilePage() {
                     onChange={(v) => set("instagram", v)}
                     error={errors.instagram}
                     disabled={disabled}
+                    placeholder="https://instagram.com/your-account"
                   />
                   <Field
                     label="LinkedIn"
@@ -749,6 +979,7 @@ function CompanyProfilePage() {
                     onChange={(v) => set("linkedin", v)}
                     error={errors.linkedin}
                     disabled={disabled}
+                    placeholder="https://linkedin.com/company/your-company"
                   />
                   <Field
                     label="YouTube"
@@ -756,63 +987,71 @@ function CompanyProfilePage() {
                     onChange={(v) => set("youtube", v)}
                     error={errors.youtube}
                     disabled={disabled}
+                    placeholder="https://youtube.com/@your-channel"
                   />
-                  <div className="lg:col-span-2">
-                    <Field
-                      label="Other social media"
-                      value={form.otherSocial}
-                      onChange={(v) => set("otherSocial", v)}
+                </div>
+              </Panel>
+            )}
+
+            {tab === "location" && (
+              <Panel
+                title="Location details"
+                description="Paste a Google Maps link and the map and coordinates are filled in for you."
+              >
+                <div className="grid gap-5">
+                  <div>
+                    <TextAreaField
+                      label="Google Maps link"
+                      value={mapInput}
+                      onChange={handleMapInput}
+                      rows={2}
                       disabled={disabled}
+                      placeholder="https://www.google.com/maps/place/... or https://maps.app.goo.gl/..."
+                      hint="In Google Maps open your place, press Share, then Copy link. A normal link, a short maps.app.goo.gl link or the embed code all work."
+                    />
+                    {mapStatus && (
+                      <p
+                        className={`mt-2 text-sm ${
+                          mapStatus.kind === "error"
+                            ? "text-destructive"
+                            : mapStatus.kind === "ok"
+                              ? "text-success"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {mapStatus.text}
+                      </p>
+                    )}
+                    <p className="mt-2 break-all text-xs text-muted-foreground">
+                      Saved map: {form.mapEmbed || "none"}
+                    </p>
+                  </div>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field
+                      label="Latitude"
+                      value={form.latitude}
+                      onChange={(v) => setCoordinate("latitude", v)}
+                      error={errors.latitude}
+                      disabled={disabled}
+                      placeholder="1.0451"
+                    />
+                    <Field
+                      label="Longitude"
+                      value={form.longitude}
+                      onChange={(v) => setCoordinate("longitude", v)}
+                      error={errors.longitude}
+                      disabled={disabled}
+                      placeholder="104.0305"
                     />
                   </div>
                 </div>
               </Panel>
             )}
 
-            {tab === "location" && (
-              <div className="grid gap-6 lg:grid-cols-2">
-                <Panel title="Location details">
-                  <div className="grid gap-5">
-                    <TextAreaField
-                      label="Google Maps embed URL"
-                      value={form.mapEmbed}
-                      onChange={(v) => set("mapEmbed", v)}
-                      rows={3}
-                      disabled={disabled}
-                    />
-                    <div className="grid gap-5 sm:grid-cols-2">
-                      <Field
-                        label="Latitude"
-                        value={form.latitude}
-                        onChange={(v) => set("latitude", v)}
-                        disabled={disabled}
-                      />
-                      <Field
-                        label="Longitude"
-                        value={form.longitude}
-                        onChange={(v) => set("longitude", v)}
-                        disabled={disabled}
-                      />
-                    </div>
-                  </div>
-                </Panel>
-                <Panel title="Map preview" padded={false}>
-                  <div className="aspect-[4/3] w-full bg-muted">
-                    <iframe
-                      title="Company location preview"
-                      src={form.mapEmbed}
-                      className="h-full w-full border-0"
-                      loading="lazy"
-                    />
-                  </div>
-                </Panel>
-              </div>
-            )}
-
             {tab === "seo" && (
               <Panel
                 title="Search engine optimisation"
-                description="Defaults used when a page has no specific metadata."
+                description="Title and description for the home page, and the defaults for pages without their own."
               >
                 <div className="grid gap-5">
                   <Field
@@ -820,7 +1059,7 @@ function CompanyProfilePage() {
                     value={form.metaTitle}
                     onChange={(v) => set("metaTitle", v)}
                     error={errors.metaTitle}
-                    hint={`${form.metaTitle.length}/60 characters`}
+                    hint={`${form.metaTitle.length} characters. About 60 or fewer displays fully on Google.`}
                     disabled={disabled}
                   />
                   <TextAreaField
@@ -829,13 +1068,14 @@ function CompanyProfilePage() {
                     onChange={(v) => set("metaDescription", v)}
                     rows={3}
                     error={errors.metaDescription}
-                    hint={`${form.metaDescription.length}/160 characters`}
+                    hint={`${form.metaDescription.length} characters. About 160 or fewer displays fully on Google.`}
                     disabled={disabled}
                   />
                   <TextAreaField
                     label="Keywords"
                     value={form.keywords}
                     onChange={(v) => set("keywords", v)}
+                    error={errors.keywords}
                     rows={2}
                     hint="Separate keywords with commas."
                     disabled={disabled}
@@ -844,20 +1084,13 @@ function CompanyProfilePage() {
                     <UploadBox
                       label="Open Graph image"
                       fileName={form.ogImageName}
+                      file={ogImageFile}
                       disabled={disabled}
                       onChange={(v) => set("ogImageName", v)}
+                      onFileSelect={setOgImageFile}
+                      accept="image/jpeg,image/png,image/webp"
                       hint="JPG, 1200 × 630 px."
                     />
-                  </div>
-                  <div className="border border-border bg-muted/50 p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Search result preview
-                    </p>
-                    <p className="mt-2 text-base font-medium text-secondary">{form.metaTitle}</p>
-                    <p className="text-xs text-[color:oklch(0.5_0.12_145)]">
-                      www.batamkonektra.co.id
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">{form.metaDescription}</p>
                   </div>
                 </div>
               </Panel>
@@ -866,7 +1099,7 @@ function CompanyProfilePage() {
             {tab === "document" && (
               <Panel
                 title="Company profile document"
-                description="Downloadable PDF offered on the About and Contact pages."
+                description="Downloadable PDF offered on the About page."
               >
                 {form.profilePdfName ? (
                   <div className="flex flex-col gap-4 border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -876,7 +1109,7 @@ function CompanyProfilePage() {
                       </span>
                       <div>
                         <p className="text-sm font-semibold text-foreground">
-                          {form.profilePdfName}
+                          {displayFileName(form.profilePdfName)}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           PDF · {form.profilePdfSize} · updated {form.profilePdfUpdatedAt}
@@ -886,33 +1119,44 @@ function CompanyProfilePage() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() =>
-                          toast.info(
-                            `Previewing ${form.profilePdfName} isn't available in this demo — this action will open the file in a new tab once connected to the Laravel API.`,
-                          )
-                        }
+                        onClick={() => {
+                          if (/^https?:\/\//.test(form.profilePdfName)) {
+                            window.open(form.profilePdfName, "_blank", "noopener,noreferrer");
+                          } else if (profilePdfFile) {
+                            const url = URL.createObjectURL(profilePdfFile);
+                            window.open(url, "_blank", "noopener,noreferrer");
+                          } else {
+                            toast.info("Save the profile first to open the uploaded document.");
+                          }
+                        }}
                         className="btn-outline text-sm"
                       >
                         <Eye className="h-4 w-4" />
                         Preview file
                       </button>
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => {
-                          set("profilePdfName", "Company-Profile-Konektra-2026-rev2.pdf");
-                          set("profilePdfSize", "5.1 MB");
-                          set("profilePdfUpdatedAt", "8 Sep 2026");
-                        }}
-                        className="btn-outline text-sm disabled:opacity-50"
-                      >
+                      <label className="btn-outline cursor-pointer text-sm">
                         <Upload className="h-4 w-4" />
                         Replace
-                      </button>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          disabled={disabled}
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setProfilePdfFile(file);
+                            set("profilePdfName", file.name);
+                            set("profilePdfSize", `${(file.size / 1024 / 1024).toFixed(1)} MB`);
+                            set("profilePdfUpdatedAt", new Date().toLocaleDateString("en-GB"));
+                          }}
+                        />
+                      </label>
                       <button
                         type="button"
                         disabled={disabled}
                         onClick={() => {
+                          setProfilePdfFile(null);
                           set("profilePdfName", "");
                           set("profilePdfSize", "");
                           set("profilePdfUpdatedAt", "");
@@ -929,19 +1173,24 @@ function CompanyProfilePage() {
                     title="No company profile document"
                     description="Upload a PDF so visitors can download the company profile."
                     action={
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => {
-                          set("profilePdfName", "Company-Profile-Konektra-2026.pdf");
-                          set("profilePdfSize", "4.8 MB");
-                          set("profilePdfUpdatedAt", "8 Sep 2026");
-                        }}
-                        className="btn-primary text-sm disabled:opacity-50"
-                      >
+                      <label className="btn-primary cursor-pointer text-sm">
                         <Upload className="h-4 w-4" />
                         Upload PDF
-                      </button>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          disabled={disabled}
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setProfilePdfFile(file);
+                            set("profilePdfName", file.name);
+                            set("profilePdfSize", `${(file.size / 1024 / 1024).toFixed(1)} MB`);
+                            set("profilePdfUpdatedAt", new Date().toLocaleDateString("en-GB"));
+                          }}
+                        />
+                      </label>
                     }
                   />
                 )}
@@ -951,14 +1200,11 @@ function CompanyProfilePage() {
             {tab === "milestones" && (
               <Panel
                 title="Company milestones"
-                description="Rendered as the timeline on the public About page."
+                description="Shown as the company timeline on the About page. Only active milestones are shown."
                 action={
                   <button
                     type="button"
-                    onClick={() => {
-                      setMilestoneErrors({});
-                      setMilestoneDraft(emptyMilestone((milestones?.length ?? 0) + 1));
-                    }}
+                    onClick={() => openMilestone(emptyMilestone((milestones?.length ?? 0) + 1))}
                     className="btn-primary text-sm"
                   >
                     <Plus className="h-4 w-4" />
@@ -996,9 +1242,16 @@ function CompanyProfilePage() {
                             <p className="text-sm font-semibold text-foreground">{m.title}</p>
                             <p className="text-xs text-muted-foreground">{m.description}</p>
                             <p className="mt-1 text-[11px] text-muted-foreground/70">
-                              Order {m.order} · {m.image || "no image"}
+                              Order {m.order} · {m.image ? "with image" : "no image"}
                             </p>
                           </div>
+                          {m.image && (
+                            <img
+                              src={m.image}
+                              alt=""
+                              className="h-12 w-16 shrink-0 border border-border object-cover"
+                            />
+                          )}
                           <div className="flex items-center gap-2">
                             <StatusPill status={m.active ? "Active" : "Inactive"} />
                             <button
@@ -1028,10 +1281,7 @@ function CompanyProfilePage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                setMilestoneErrors({});
-                                setMilestoneDraft({ ...m });
-                              }}
+                              onClick={() => openMilestone({ ...m })}
                               aria-label={`Edit ${m.title}`}
                               className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted-foreground hover:text-primary"
                             >
@@ -1049,40 +1299,28 @@ function CompanyProfilePage() {
                         </li>
                       ))}
                     </ul>
-                    <div className="border-t border-border bg-muted/40 p-5">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        Public timeline preview
-                      </p>
-                      <ol className="mt-4 space-y-4 border-l border-border pl-5">
-                        {milestones
-                          .filter((m) => m.active)
-                          .map((m) => (
-                            <li key={m.id} className="relative">
-                              <span className="absolute -left-[27px] top-1.5 h-2.5 w-2.5 bg-accent" />
-                              <p className="text-sm font-bold text-primary">
-                                {m.year} — {m.title}
-                              </p>
-                              <p className="text-sm text-muted-foreground">{m.description}</p>
-                            </li>
-                          ))}
-                      </ol>
-                    </div>
                   </>
                 )}
               </Panel>
             )}
+            <TabPreview
+              tab={tab}
+              form={form}
+              milestones={milestones}
+              assets={{ logo: logoUrl, ogImage: ogImageUrl, pdf: pdfUrl }}
+            />
           </div>
         )}
       </div>
 
       {/* Milestone editor */}
       <Dialog open={!!milestoneDraft} onOpenChange={(o) => !o && setMilestoneDraft(null)}>
-        <DialogContent className="max-w-lg rounded-none">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto overflow-x-hidden rounded-none">
           <DialogHeader>
             <DialogTitle>{milestoneDraft?.id ? "Edit milestone" : "Add milestone"}</DialogTitle>
           </DialogHeader>
           {milestoneDraft && (
-            <div className="grid gap-4">
+            <div className="grid min-w-0 grid-cols-1 gap-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   label="Year"
@@ -1094,7 +1332,12 @@ function CompanyProfilePage() {
                   label="Display order"
                   type="number"
                   value={String(milestoneDraft.order)}
-                  onChange={(v) => setMilestoneDraft({ ...milestoneDraft, order: Number(v) || 0 })}
+                  onChange={(v) =>
+                    setMilestoneDraft({
+                      ...milestoneDraft,
+                      order: Number(v) || 0,
+                    })
+                  }
                 />
               </div>
               <Field
@@ -1110,16 +1353,24 @@ function CompanyProfilePage() {
                 rows={3}
                 error={milestoneErrors.description}
               />
-              <Field
-                label="Image file name"
-                value={milestoneDraft.image}
+              <UploadBox
+                label="Milestone image (optional)"
+                fileName={milestoneDraft.image}
+                file={milestoneImageFile}
                 onChange={(v) => setMilestoneDraft({ ...milestoneDraft, image: v })}
-                hint="Upload handling arrives with the backend."
+                onFileSelect={setMilestoneImageFile}
+                accept="image/jpeg,image/png,image/webp"
+                hint="JPG, PNG or WebP."
               />
               <SelectField
                 label="Status"
                 value={milestoneDraft.active ? "Active" : "Inactive"}
-                onChange={(v) => setMilestoneDraft({ ...milestoneDraft, active: v === "Active" })}
+                onChange={(v) =>
+                  setMilestoneDraft({
+                    ...milestoneDraft,
+                    active: v === "Active",
+                  })
+                }
                 options={["Active", "Inactive"]}
               />
               <div className="flex justify-end gap-2 pt-2">
@@ -1149,62 +1400,18 @@ function CompanyProfilePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Live preview */}
+      {/* Live preview of the whole website content */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto rounded-none">
+        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto rounded-none">
           <DialogHeader>
-            <DialogTitle>Public content preview</DialogTitle>
+            <DialogTitle>Website preview</DialogTitle>
           </DialogHeader>
           {form && (
-            <div className="space-y-5 text-sm">
-              <div>
-                <p className="eyebrow">{form.tagline}</p>
-                <h3 className="mt-1 text-xl font-bold text-primary">{form.name}</h3>
-                <p className="mt-2 text-muted-foreground">{form.shortDescription}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Our story
-                </p>
-                <p className="mt-1 text-muted-foreground">{form.history}</p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="border border-border p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-secondary">
-                    Vision
-                  </p>
-                  <p className="mt-1 text-muted-foreground">{form.vision}</p>
-                </div>
-                <div className="border border-border p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-secondary">
-                    Mission
-                  </p>
-                  <p className="mt-1 text-muted-foreground">{form.mission}</p>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Core values
-                </p>
-                <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {form.coreValues.map((v) => (
-                    <li key={v.id} className="border border-border p-3">
-                      <p className="font-semibold text-primary">{v.name}</p>
-                      <p className="text-xs text-muted-foreground">{v.description}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="border-t border-border pt-4 text-muted-foreground">
-                <p>
-                  {form.address}, {form.city}, {form.province} {form.postalCode}
-                </p>
-                <p>
-                  {form.phone} · {form.email}
-                </p>
-                <p>{form.businessHours}</p>
-              </div>
-            </div>
+            <FullPreview
+              form={form}
+              milestones={milestones}
+              assets={{ logo: logoUrl, ogImage: ogImageUrl, pdf: pdfUrl }}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -1249,7 +1456,7 @@ function CompanyProfilePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete milestone?</AlertDialogTitle>
             <AlertDialogDescription>
-              “{deleteTarget?.year} — {deleteTarget?.title}” will be removed from the public
+              “{deleteTarget?.year} | {deleteTarget?.title}” will be removed from the public
               timeline.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1265,42 +1472,117 @@ function CompanyProfilePage() {
   );
 }
 
+/** URL to preview a file: the just-picked upload, otherwise the stored URL. */
+function useFileUrl(file: File | null, stored: string): string {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!file) {
+      setUrl("");
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+  return url || (/^https?:\/\//.test(stored) ? stored : "");
+}
+
+/** Last path segment of a stored file URL, decoded, or the name as-is. */
+function displayFileName(value: string): string {
+  if (!/^https?:\/\//.test(value)) return value;
+  try {
+    const last = new URL(value).pathname.split("/").filter(Boolean).pop() ?? value;
+    return decodeURIComponent(last);
+  } catch {
+    return value;
+  }
+}
+
+const IMAGE_URL = /\.(png|jpe?g|webp|gif|svg|ico)(\?.*)?$/i;
+
 function UploadBox({
   label,
   fileName,
+  file,
   onChange,
+  onFileSelect,
+  accept,
   hint,
   disabled,
 }: {
   label: string;
   fileName: string;
+  /** The File picked in this session (not yet saved), used for the preview. */
+  file?: File | null;
   onChange: (v: string) => void;
+  onFileSelect?: (file: File | null) => void;
+  accept?: string;
   hint?: string;
   disabled?: boolean;
 }) {
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file || !file.type.startsWith("image/")) {
+      setLocalUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setLocalUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const previewUrl =
+    localUrl ?? (/^https?:\/\//.test(fileName) && IMAGE_URL.test(fileName) ? fileName : null);
+
   return (
-    <div>
+    <div className="min-w-0">
       <label className="block text-sm font-semibold text-foreground">{label}</label>
       <div className="mt-2 flex items-center gap-3 border border-dashed border-border bg-muted/40 p-3">
-        <span className="flex h-10 w-10 items-center justify-center bg-surface text-secondary">
-          <Upload className="h-4 w-4" />
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden bg-surface text-secondary">
+          {previewUrl ? (
+            <img src={previewUrl} alt="" className="h-full w-full object-contain" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">
-            {fileName || "No file selected"}
+            {fileName ? displayFileName(fileName) : "No file selected"}
           </p>
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
         </div>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() =>
-            onChange(fileName ? "" : `${label.toLowerCase().replace(/\s+/g, "-")}-new.png`)
-          }
-          className="border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary hover:bg-muted disabled:opacity-50"
-        >
-          {fileName ? "Remove" : "Choose"}
-        </button>
+        {fileName ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              onChange("");
+              onFileSelect?.(null);
+            }}
+            className="border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary hover:bg-muted disabled:opacity-50"
+          >
+            Remove
+          </button>
+        ) : (
+          <label className="cursor-pointer border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary hover:bg-muted">
+            Choose
+            <input
+              type="file"
+              accept={accept}
+              disabled={disabled}
+              className="hidden"
+              onChange={(e) => {
+                const picked = e.target.files?.[0];
+                if (picked) {
+                  onChange(picked.name);
+                  onFileSelect?.(picked);
+                }
+                // Allow picking the same file again after removing it.
+                e.target.value = "";
+              }}
+            />
+          </label>
+        )}
       </div>
     </div>
   );

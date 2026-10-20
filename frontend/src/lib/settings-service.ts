@@ -1,14 +1,15 @@
 // ----------------------------------------------------------------------------
-// MOCK WEBSITE SETTINGS SERVICE — homepage and footer configuration.
-// In-memory only. Each function maps 1:1 to a future Laravel API endpoint.
+// WEBSITE SETTINGS SERVICE, talks to the real Laravel API
+// (/api/admin/settings). Exported names are unchanged from the old mock
+// version so admin.settings.tsx doesn't need to change.
 //
 // Company name, logo, contact details, social links, and SEO metadata are
-// owned by the Company Profile module (/admin/company-profile) — this
+// owned by the Company Profile module (/admin/company-profile), this
 // service only covers homepage section toggles and footer content so the
 // two screens don't duplicate the same fields.
 // ----------------------------------------------------------------------------
 
-import { logActivity } from "@/lib/activity-log-service";
+import { api } from "@/lib/api-client";
 
 export type FooterLink = { id: string; label: string; url: string };
 
@@ -29,45 +30,54 @@ export type WebsiteSettings = {
   footerLinks: FooterLink[];
 };
 
-const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-
-let settingsStore: WebsiteSettings = {
-  heroTitle: "Powering Indonesia's Industrial Growth",
-  heroSubtitle:
-    "PT Batam Konektra Jaya designs, manufactures, and integrates electrical power equipment for utilities, industrial plants, and infrastructure projects across Indonesia.",
-  heroCtaText: "Explore Products",
-  heroCtaUrl: "/products",
-  showStats: true,
-  showWhyChooseUs: true,
-  showFeaturedProducts: true,
-  showLatestNews: true,
-  showFinalCta: true,
-  footerDescription:
-    "PT Batam Konektra Jaya is an industrial engineering company manufacturing transformers, switchgear, generators, and power distribution equipment in Batam, Indonesia.",
-  copyrightText: `© ${new Date().getFullYear()} PT Batam Konektra Jaya. All rights reserved.`,
-  footerLinks: [
-    { id: "fl-1", label: "About Us", url: "/about" },
-    { id: "fl-2", label: "Products", url: "/products" },
-    { id: "fl-3", label: "News", url: "/news" },
-    { id: "fl-4", label: "Contact", url: "/contact" },
-  ],
+type RawSettings = {
+  heroTitle: string | null;
+  heroSubtitle: string | null;
+  heroCtaText: string | null;
+  heroCtaUrl: string | null;
+  showStats: boolean | null;
+  showWhyChooseUs: boolean | null;
+  showFeaturedProducts: boolean | null;
+  showLatestNews: boolean | null;
+  showFinalCta: boolean | null;
+  footerDescription: string | null;
+  copyrightText: string;
+  footerLinks: { id: number; label: string; url: string; order: number }[] | null;
 };
 
-// --- settings service (GET/PUT /api/admin/settings) -------------------------
+function normalize(raw: RawSettings): WebsiteSettings {
+  return {
+    heroTitle: raw.heroTitle ?? "",
+    heroSubtitle: raw.heroSubtitle ?? "",
+    heroCtaText: raw.heroCtaText ?? "",
+    heroCtaUrl: raw.heroCtaUrl ?? "",
+    showStats: raw.showStats ?? true,
+    showWhyChooseUs: raw.showWhyChooseUs ?? true,
+    showFeaturedProducts: raw.showFeaturedProducts ?? true,
+    showLatestNews: raw.showLatestNews ?? true,
+    showFinalCta: raw.showFinalCta ?? true,
+    footerDescription: raw.footerDescription ?? "",
+    copyrightText: raw.copyrightText,
+    footerLinks: (raw.footerLinks ?? [])
+      .sort((a, b) => a.order - b.order)
+      .map((l) => ({ id: String(l.id), label: l.label, url: l.url })),
+  };
+}
+
 export async function getSettings(): Promise<WebsiteSettings> {
-  await delay(400);
-  return clone(settingsStore);
+  const raw = await api.get<RawSettings>("/admin/settings");
+  return normalize(raw);
 }
 
 export async function updateSettings(input: WebsiteSettings): Promise<WebsiteSettings> {
-  await delay(650);
-  settingsStore = clone(input);
-  logActivity({
-    action: "Update",
-    module: "Settings",
-    description: "Updated homepage and footer settings",
-    affectedData: "Website Settings",
+  const { footerLinks, ...rest } = input;
+  const raw = await api.put<RawSettings>("/admin/settings", {
+    ...rest,
+    footerLinks: footerLinks.map((l, i) => ({
+      label: l.label,
+      url: l.url,
+      order: i,
+    })),
   });
-  return clone(settingsStore);
+  return normalize(raw);
 }

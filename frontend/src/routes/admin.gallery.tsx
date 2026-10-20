@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { WebsiteLocation } from "@/components/admin/WebsiteLocation";
+import { FileImage } from "@/components/admin/FileImage";
 import { useAdminUser } from "@/components/admin/admin-context";
 import {
   Panel,
@@ -49,11 +51,12 @@ import {
   galleryAlbums,
   type AdminGalleryItem,
 } from "@/lib/gallery-service";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/gallery")({
   head: () => ({
     meta: [
-      { title: "Gallery — Konektra Admin Console" },
+      { title: "Gallery Konektra Admin Console" },
       {
         name: "description",
         content: "Manage the photo gallery shown on the public PT Batam Konektra Jaya website.",
@@ -80,6 +83,7 @@ function GalleryPage() {
   const [perPage, setPerPage] = useState(8);
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminGalleryItem | null>(null);
@@ -131,11 +135,13 @@ function GalleryPage() {
   function openCreate() {
     const nextOrder = (rows ?? []).reduce((m, g) => Math.max(m, g.order), 0) + 1;
     setErrors({});
+    setImageFile(null);
     setDraft(emptyGalleryItem(nextOrder));
   }
 
   function openEdit(item: AdminGalleryItem) {
     setErrors({});
+    setImageFile(null);
     setDraft({ ...item });
   }
 
@@ -159,17 +165,17 @@ function GalleryPage() {
     const { id, ...payload } = draft;
     try {
       if (id) {
-        const updated = await updateGalleryItem(id, payload);
+        const updated = await updateGalleryItem(id, payload, imageFile ?? undefined);
         setRows((prev) => (prev ?? []).map((g) => (g.id === id ? updated : g)));
         toast.success("Gallery item updated.");
       } else {
-        const created = await createGalleryItem(payload);
+        const created = await createGalleryItem(payload, imageFile ?? undefined);
         setRows((prev) => [...(prev ?? []), created]);
         toast.success("Gallery item added.");
       }
       setDraft(null);
-    } catch {
-      toast.error("Could not save the gallery item.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save the gallery item."));
     } finally {
       setSaving(false);
     }
@@ -183,8 +189,8 @@ function GalleryPage() {
       setRows((prev) => (prev ?? []).filter((g) => g.id !== deleteTarget.id));
       toast.success("Gallery item deleted.");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Could not delete the gallery item.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not delete the gallery item."));
     } finally {
       setDeleting(false);
     }
@@ -200,8 +206,8 @@ function GalleryPage() {
       });
       setRows((prev) => (prev ?? []).map((g) => (g.id === id ? updated : g)));
       toast.success(`Image ${updated.status === "Active" ? "enabled" : "disabled"}.`);
-    } catch {
-      toast.error("Could not change the image status.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not change the image status."));
     } finally {
       setBusyId(null);
     }
@@ -212,8 +218,8 @@ function GalleryPage() {
     try {
       const next = await reorderGalleryItem(item.id, direction);
       setRows(next);
-    } catch {
-      toast.error("Could not reorder the gallery.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not reorder the gallery."));
     } finally {
       setBusyId(null);
     }
@@ -224,6 +230,7 @@ function GalleryPage() {
       <AdminHeader user={user} title="Gallery" subtitle="Photo albums shown on the public site" />
 
       <div className="space-y-6 p-5 lg:p-8">
+        <WebsiteLocation feature="gallery" />
         <Panel padded={false}>
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <div>
@@ -301,7 +308,7 @@ function GalleryPage() {
           {rows !== null && !loadError && filtered.length > 0 && (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[880px] text-sm">
+                <table className="w-full min-w-220 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/50 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-3">
@@ -341,8 +348,12 @@ function GalleryPage() {
                       <tr key={g.id} className="align-middle hover:bg-muted/40">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-3">
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center bg-muted text-muted-foreground">
-                              <ImageIcon className="h-4 w-4" />
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden bg-muted text-muted-foreground">
+                              {g.image ? (
+                                <img src={g.image} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <ImageIcon className="h-4 w-4" />
+                              )}
                             </span>
                             <div>
                               <span className="block font-medium text-foreground">{g.title}</span>
@@ -492,28 +503,49 @@ function GalleryPage() {
               <div className="border border-dashed border-border bg-muted/40 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="flex h-12 w-12 items-center justify-center bg-primary/10 text-xs font-semibold text-primary">
-                      <ImageIcon className="h-5 w-5" />
-                    </span>
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden bg-primary/10">
+                      {imageFile ? (
+                        <FileImage file={imageFile} className="h-full w-full object-cover" />
+                      ) : draft.image ? (
+                        <img src={draft.image} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <ImageIcon className="h-5 w-5 text-primary" />
+                      )}
+                    </div>
                     <div>
                       <p className="text-sm font-semibold text-foreground">Image file</p>
                       <p className="text-xs text-muted-foreground">
-                        {draft.image || "JPG, PNG, or WebP, at least 1600 × 1000 px."}
+                        {imageFile?.name ||
+                          draft.image ||
+                          "JPG, PNG, or WebP, at least 1600 × 1000 px."}
                       </p>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDraft({ ...draft, image: `gallery-${Date.now()}.jpg` })}
-                      className="btn-outline h-9 px-3 text-sm"
-                    >
-                      <Upload className="h-4 w-4" /> Choose file
-                    </button>
-                    {draft.image && (
+                    <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                      <Upload className="h-4 w-4" />
+                      {draft.image ? "Replace" : "Choose file"}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setImageFile(file);
+                            setDraft({ ...draft, image: file.name });
+                          }
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {(imageFile || draft.image) && (
                       <button
                         type="button"
-                        onClick={() => setDraft({ ...draft, image: "" })}
+                        onClick={() => {
+                          setImageFile(null);
+                          setDraft({ ...draft, image: "" });
+                        }}
                         className="btn-outline h-9 px-3 text-sm text-destructive"
                       >
                         Remove
@@ -553,7 +585,12 @@ function GalleryPage() {
                   label="Status"
                   value={draft.status}
                   options={["Active", "Inactive"]}
-                  onChange={(v) => setDraft({ ...draft, status: v as AdminGalleryItem["status"] })}
+                  onChange={(v) =>
+                    setDraft({
+                      ...draft,
+                      status: v as AdminGalleryItem["status"],
+                    })
+                  }
                 />
               </div>
               <Field

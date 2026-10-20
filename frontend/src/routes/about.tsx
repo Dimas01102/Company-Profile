@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Award,
+  BadgeCheck,
   ChevronRight,
   Compass,
   Eye,
@@ -9,8 +10,12 @@ import {
   Lightbulb,
   ShieldCheck,
   Target,
+  Truck,
   Users,
+  Wrench,
   ArrowRight,
+  Download,
+  type LucideIcon,
 } from "lucide-react";
 
 import facilityImage from "@/assets/about-facility.jpg";
@@ -19,16 +24,27 @@ import { SiteLayout } from "@/components/layout/SiteLayout";
 import { PageHero } from "@/components/site/PageHero";
 import { SectionHeader } from "@/components/site/SectionHeader";
 import { CountUp } from "@/components/site/CountUp";
-import { company, stats, team } from "@/lib/mock-data";
+import { paragraphs, splitMission } from "@/lib/company-display";
+import { stats } from "@/lib/mock-data";
+import { TeamCard } from "@/components/site/TeamCard";
+import { getPublicCompany, getPublicMilestones, getPublicTeam } from "@/lib/public-data";
 
 export const Route = createFileRoute("/about")({
+  loader: async () => {
+    const [company, team, milestones] = await Promise.all([
+      getPublicCompany(),
+      getPublicTeam(),
+      getPublicMilestones(),
+    ]);
+    return { company, team, milestones };
+  },
   head: () => ({
     meta: [
-      { title: "About — PT Batam Konektra Jaya" },
+      { title: "About PT Batam Konektra Jaya" },
       {
         name: "description",
         content:
-          "Learn about PT Batam Konektra Jaya — an Indonesian engineering company with over 20 years of experience delivering transformers, switchgear, and industrial power solutions.",
+          "Learn about PT Batam Konektra Jaya an Indonesian engineering company with over 20 years of experience delivering transformers, switchgear, and industrial power solutions.",
       },
       { property: "og:title", content: "About PT Batam Konektra Jaya" },
       {
@@ -42,70 +58,16 @@ export const Route = createFileRoute("/about")({
   component: AboutPage,
 });
 
-const coreValues = [
-  {
-    icon: ShieldCheck,
-    title: "Integrity",
-    description:
-      "We deliver what we promise — from technical specifications to project schedules and after-sales commitments.",
-  },
-  {
-    icon: Award,
-    title: "Quality",
-    description:
-      "Every unit is type-tested and factory-inspected against IEC, SPLN, and SNI standards before it leaves our facility.",
-  },
-  {
-    icon: Lightbulb,
-    title: "Innovation",
-    description:
-      "We continuously invest in engineering talent, tooling, and technology partnerships to raise the bar of local manufacturing.",
-  },
-  {
-    icon: Handshake,
-    title: "Partnership",
-    description:
-      "We work as an extension of our clients' teams — from utilities and EPCs to industrial and offshore operators.",
-  },
-];
-
-const milestones = [
-  {
-    year: "2004",
-    title: "Company Founded",
-    description:
-      "Established in Batam as an electrical engineering workshop serving local industry.",
-  },
-  {
-    year: "2009",
-    title: "First Substation Project",
-    description:
-      "Delivered turnkey 20 kV substation for a heavy manufacturing plant in Kepulauan Riau.",
-  },
-  {
-    year: "2014",
-    title: "ISO 9001 Certified",
-    description:
-      "Achieved ISO 9001 quality management certification across engineering and production.",
-  },
-  {
-    year: "2018",
-    title: "Manufacturing Expansion",
-    description:
-      "Opened expanded panel and busbar production facility inside Kawasan Industri Batamindo.",
-  },
-  {
-    year: "2022",
-    title: "European OEM Partnership",
-    description:
-      "Signed technology transfer agreement for medium-voltage switchgear assembly in Batam.",
-  },
-  {
-    year: "2026",
-    title: "500+ Projects Delivered",
-    description: "Reached 500 completed industrial projects across Indonesia and Southeast Asia.",
-  },
-];
+// Icon names selectable for a core value in Admin > Company Profile.
+const valueIcons: Record<string, LucideIcon> = {
+  ShieldCheck,
+  BadgeCheck,
+  Lightbulb,
+  Handshake,
+  Users,
+  Wrench,
+  Truck,
+};
 
 const certifications = [
   { code: "ISO 9001:2015", label: "Quality Management System" },
@@ -117,12 +79,22 @@ const certifications = [
 ];
 
 function AboutPage() {
+  const { company, team, milestones } = Route.useLoaderData();
+  const storyParagraphs = [
+    ...paragraphs(company.fullDescription),
+    ...paragraphs(company.history),
+    ...paragraphs(company.background),
+  ];
+  const missionLines = splitMission(company.mission);
   return (
     <SiteLayout>
       <PageHero
         eyebrow="About the Company"
         title="Engineering Indonesia's industrial power, one project at a time."
-        description="Since 2004, PT Batam Konektra Jaya has designed, manufactured, and commissioned electrical power equipment for utilities, EPC contractors, and heavy industry across the archipelago."
+        description={
+          company.description ||
+          "PT Batam Konektra Jaya has designed, manufactured, and commissioned electrical power equipment for utilities, EPC contractors, and heavy industry across the archipelago."
+        }
       />
 
       {/* ───── Company Story ───── */}
@@ -135,7 +107,7 @@ function AboutPage() {
               width={1280}
               height={960}
               loading="lazy"
-              className="aspect-[4/3] w-full object-cover"
+              className="aspect-4/3 w-full object-cover"
             />
             <div className="absolute -bottom-6 -right-6 hidden bg-accent px-6 py-5 md:block">
               <div className="text-3xl font-bold text-accent-foreground">
@@ -152,19 +124,54 @@ function AboutPage() {
               Two decades of Indonesian engineering, built on trust.
             </h2>
             <div className="mt-5 space-y-4 text-base leading-relaxed text-muted-foreground">
-              <p>
-                {company.name} was founded in 2004 as a small electrical workshop in Batam, serving
-                local manufacturers with switchboards and control panels. Two decades later, we are
-                a full-service industrial power engineering company with in-house design,
-                manufacturing, testing, and commissioning capabilities.
-              </p>
-              <p>
-                From our headquarters at Kawasan Industri Batamindo, we partner with utilities, oil
-                &amp; gas operators, data center developers, and industrial manufacturers across
-                Indonesia — delivering equipment that meets the most demanding international
-                standards.
-              </p>
+              {storyParagraphs.length > 0 ? (
+                storyParagraphs.map((text, i) => <p key={i}>{text}</p>)
+              ) : (
+                <>
+                  <p>
+                    {company.name} was founded in {company.founded} as a small electrical workshop
+                    in Batam, serving local manufacturers with switchboards and control panels. Two
+                    decades later, we are a full-service industrial power engineering company with
+                    in-house design, manufacturing, testing, and commissioning capabilities.
+                  </p>
+                  <p>
+                    From our headquarters at Kawasan Industri Batamindo, we partner with utilities,
+                    oil &amp; gas operators, data center developers, and industrial manufacturers
+                    across Indonesia, delivering equipment that meets the most demanding
+                    international standards.
+                  </p>
+                </>
+              )}
             </div>
+            {(company.businessType || company.industry || company.businessScope) && (
+              <dl className="mt-7 grid gap-4 border border-border bg-card p-5 text-sm">
+                {[
+                  ["Business type", company.businessType],
+                  ["Industry", company.industry],
+                  ["Business scope", company.businessScope],
+                ]
+                  .filter(([, value]) => value)
+                  .map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {label}
+                      </dt>
+                      <dd className="mt-1 text-foreground">{value}</dd>
+                    </div>
+                  ))}
+              </dl>
+            )}
+            {company.profilePdf && (
+              <a
+                href={company.profilePdf}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-outline mt-7 inline-flex text-sm"
+              >
+                <Download className="h-4 w-4" />
+                Download Company Profile (PDF)
+              </a>
+            )}
             <ul className="mt-7 grid gap-3 sm:grid-cols-2">
               {[
                 "In-house engineering & design",
@@ -213,9 +220,8 @@ function AboutPage() {
               </span>
               <h3 className="mt-6 text-xl font-semibold text-foreground">Our Vision</h3>
               <p className="mt-3 text-base leading-relaxed text-muted-foreground">
-                To become Indonesia's most trusted engineering partner for industrial power —
-                recognized for technical depth, product reliability, and long-term customer
-                relationships.
+                {company.vision ||
+                  "To become Indonesia's most trusted engineering partner for industrial power, recognized for technical depth, product reliability, and long-term customer relationships."}
               </p>
             </div>
             <div className="border-t-2 border-accent bg-card p-8 md:p-10">
@@ -224,12 +230,15 @@ function AboutPage() {
               </span>
               <h3 className="mt-6 text-xl font-semibold text-foreground">Our Mission</h3>
               <ul className="mt-3 space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-                {[
-                  "Design and manufacture power equipment that meets international standards.",
-                  "Support customers through every stage — from specification to after-sales.",
-                  "Develop Indonesian engineering talent through continuous investment.",
-                  "Operate responsibly with safety, quality, and integrity at the core.",
-                ].map((m) => (
+                {(missionLines.length > 0
+                  ? missionLines
+                  : [
+                      "Design and manufacture power equipment that meets international standards.",
+                      "Support customers through every stage, from specification to after-sales.",
+                      "Develop Indonesian engineering talent through continuous investment.",
+                      "Operate responsibly with safety, quality, and integrity at the core.",
+                    ]
+                ).map((m) => (
                   <li key={m} className="flex items-start gap-2">
                     <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                     <span>{m}</span>
@@ -242,60 +251,75 @@ function AboutPage() {
       </section>
 
       {/* ───── Core Values ───── */}
-      <section className="bg-surface py-20 md:py-28">
-        <div className="container-page">
-          <SectionHeader
-            eyebrow="Core Values"
-            title="The principles behind our work."
-            description="Four values that shape how we engineer, manufacture, and serve our clients."
-            align="center"
-          />
-          <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {coreValues.map((v) => (
-              <div
-                key={v.title}
-                className="border-t-2 border-accent bg-card p-7 transition-shadow hover:shadow-[var(--shadow-card-hover)]"
-              >
-                <span className="grid h-12 w-12 place-items-center bg-primary text-primary-foreground">
-                  <v.icon className="h-5 w-5" />
-                </span>
-                <h3 className="mt-5 text-lg font-semibold text-foreground">{v.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  {v.description}
-                </p>
-              </div>
-            ))}
+      {company.coreValues.length > 0 && (
+        <section className="bg-surface py-20 md:py-28">
+          <div className="container-page">
+            <SectionHeader
+              eyebrow="Core Values"
+              title="The principles behind our work."
+              description="The values that shape how we engineer, manufacture, and serve our clients."
+              align="center"
+            />
+            <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {company.coreValues.map((v) => {
+                const Icon = valueIcons[v.icon] ?? ShieldCheck;
+                return (
+                  <div
+                    key={v.id}
+                    className="border-t-2 border-accent bg-card p-7 transition-shadow hover:shadow-(--shadow-card-hover)"
+                  >
+                    <span className="grid h-12 w-12 place-items-center bg-primary text-primary-foreground">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <h3 className="mt-5 text-lg font-semibold text-foreground">{v.name}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                      {v.description}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ───── Milestones / Timeline ───── */}
-      <section className="bg-background py-20 md:py-28">
-        <div className="container-page">
-          <SectionHeader
-            eyebrow="Company Milestones"
-            title="Two decades of steady growth."
-            description="Key moments in the Konektra journey — from workshop origins to a nationwide engineering partner."
-            align="center"
-          />
-          <div className="mx-auto mt-14 max-w-4xl">
-            <ol className="relative border-l-2 border-border pl-8">
-              {milestones.map((m) => (
-                <li key={m.year} className="relative pb-10 last:pb-0">
-                  <span className="absolute -left-[41px] top-1 grid h-5 w-5 place-items-center rounded-full border-4 border-background bg-accent" />
-                  <div className="text-xs font-bold uppercase tracking-[0.18em] text-secondary">
-                    {m.year}
-                  </div>
-                  <h3 className="mt-1.5 text-lg font-semibold text-foreground">{m.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                    {m.description}
-                  </p>
-                </li>
-              ))}
-            </ol>
+      {milestones.length > 0 && (
+        <section className="bg-background py-20 md:py-28">
+          <div className="container-page">
+            <SectionHeader
+              eyebrow="Company Milestones"
+              title="Our journey so far."
+              description="Key moments in the Konektra journey."
+              align="center"
+            />
+            <div className="mx-auto mt-14 max-w-4xl">
+              <ol className="relative border-l-2 border-border pl-8">
+                {milestones.map((m) => (
+                  <li key={m.id} className="relative pb-10 last:pb-0">
+                    <span className="absolute -left-10.25 top-1 grid h-5 w-5 place-items-center rounded-full border-4 border-background bg-accent" />
+                    <div className="text-xs font-bold uppercase tracking-[0.18em] text-secondary">
+                      {m.year}
+                    </div>
+                    <h3 className="mt-1.5 text-lg font-semibold text-foreground">{m.title}</h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                      {m.description}
+                    </p>
+                    {m.image && (
+                      <img
+                        src={m.image}
+                        alt={m.title}
+                        loading="lazy"
+                        className="mt-3 max-h-48 w-full max-w-sm object-cover"
+                      />
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ───── Facility banner ───── */}
       <section className="relative isolate overflow-hidden bg-primary text-white">
@@ -313,9 +337,21 @@ function AboutPage() {
         />
         <div className="container-page grid gap-10 py-16 md:grid-cols-3 md:py-20">
           {[
-            { icon: Factory, title: "12,000 m²", label: "Production facility in Batam" },
-            { icon: Users, title: "180+ Staff", label: "Engineers, technicians & operators" },
-            { icon: Compass, title: "3 Service Hubs", label: "Batam · Jakarta · Surabaya" },
+            {
+              icon: Factory,
+              title: "12,000 m²",
+              label: "Production facility in Batam",
+            },
+            {
+              icon: Users,
+              title: "180+ Staff",
+              label: "Engineers, technicians & operators",
+            },
+            {
+              icon: Compass,
+              title: "3 Service Hubs",
+              label: "Batam · Jakarta · Surabaya",
+            },
           ].map((f) => (
             <div key={f.title} className="flex items-start gap-5">
               <span className="grid h-14 w-14 shrink-0 place-items-center bg-accent text-accent-foreground">
@@ -359,37 +395,23 @@ function AboutPage() {
       </section>
 
       {/* ───── Leadership Team ───── */}
-      <section className="bg-background py-20 md:py-28">
-        <div className="container-page">
-          <SectionHeader
-            eyebrow="Leadership"
-            title="Meet our management team"
-            description="Decades of combined experience in power engineering, manufacturing, and industrial sales."
-            align="center"
-          />
-          <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {team.map((m) => (
-              <article key={m.id} className="group bg-card">
-                <div className="aspect-[4/5] overflow-hidden bg-muted">
-                  <img
-                    src={m.photo}
-                    alt={m.name}
-                    loading="lazy"
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                  />
-                </div>
-                <div className="border-x border-b border-border p-5">
-                  <h3 className="text-base font-semibold text-foreground">{m.name}</h3>
-                  <p className="mt-1 text-xs font-medium uppercase tracking-wider text-secondary">
-                    {m.position}
-                  </p>
-                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{m.bio}</p>
-                </div>
-              </article>
-            ))}
+      {team.length > 0 && (
+        <section className="bg-background py-20 md:py-28">
+          <div className="container-page">
+            <SectionHeader
+              eyebrow="Leadership"
+              title="Meet our management team"
+              description="Decades of combined experience in power engineering, manufacturing, and industrial sales."
+              align="center"
+            />
+            <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {team.map((m) => (
+                <TeamCard key={m.id} member={m} showBio />
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ───── CTA ───── */}
       <section className="relative isolate overflow-hidden bg-primary text-white">

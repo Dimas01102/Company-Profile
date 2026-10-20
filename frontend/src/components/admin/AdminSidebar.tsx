@@ -118,9 +118,8 @@ export function AdminSidebarContent({ onNavigate }: { onNavigate?: () => void })
       </nav>
       <div className="border-t border-primary-foreground/10 px-5 py-4">
         <p className="text-[11px] text-primary-foreground/50">
-          Console v1.7 — Phase 7
+          Console v1.7
           <br />
-          Final QA pass (Phase 8) next.
         </p>
       </div>
     </div>

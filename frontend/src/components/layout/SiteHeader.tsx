@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { Menu, Search, X, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
+import { brandLabel } from "@/lib/company-display";
+import { getPublicCompany } from "@/lib/public-data";
 
 const nav = [
   { label: "Home", to: "/" },
@@ -16,6 +18,21 @@ type Props = { transparentOnTop?: boolean };
 export function SiteHeader({ transparentOnTop = false }: Props) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [logo, setLogo] = useState("");
+  const [brand, setBrand] = useState({ name: "KONEKTRA", tagline: "Engineering Solutions" });
+
+  // Company logo uploaded in Admin > Company Profile.
+  useEffect(() => {
+    getPublicCompany()
+      .then((c) => {
+        setLogo(c.logo);
+        setBrand((prev) => ({
+          name: c.name ? brandLabel(c.name) : prev.name,
+          tagline: c.tagline || prev.tagline,
+        }));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -32,36 +49,40 @@ export function SiteHeader({ transparentOnTop = false }: Props) {
         "fixed inset-x-0 top-0 z-50 transition-all duration-200",
         isTransparent
           ? "bg-transparent"
-          : "bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 shadow-[0_1px_0_0_var(--color-border)]",
+          : "bg-white/95 backdrop-blur supports-backdrop-filter:bg-white/80 shadow-[0_1px_0_0_var(--color-border)]",
       ].join(" ")}
     >
       <div className="container-page flex h-16 items-center justify-between md:h-20">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2.5">
-          <span
-            className={[
-              "grid h-9 w-9 place-items-center rounded-sm",
-              isTransparent ? "bg-white/15 text-white" : "bg-primary text-primary-foreground",
-            ].join(" ")}
-          >
-            <Zap className="h-5 w-5" strokeWidth={2.5} />
-          </span>
+          {logo ? (
+            <img src={logo} alt="Company logo" className="h-9 w-auto max-w-28 object-contain" />
+          ) : (
+            <span
+              className={[
+                "grid h-9 w-9 place-items-center rounded-sm",
+                isTransparent ? "bg-white/15 text-white" : "bg-primary text-primary-foreground",
+              ].join(" ")}
+            >
+              <Zap className="h-5 w-5" strokeWidth={2.5} />
+            </span>
+          )}
           <span className="flex flex-col leading-tight">
             <span
               className={[
-                "text-[15px] font-bold tracking-tight",
+                "max-w-44 truncate text-[15px] font-bold uppercase tracking-tight sm:max-w-64",
                 isTransparent ? "text-white" : "text-primary",
               ].join(" ")}
             >
-              KONEKTRA
+              {brand.name}
             </span>
             <span
               className={[
-                "text-[10px] font-medium uppercase tracking-[0.18em]",
+                "max-w-44 truncate text-[10px] font-medium uppercase tracking-[0.18em] sm:max-w-64",
                 isTransparent ? "text-white/70" : "text-muted-foreground",
               ].join(" ")}
             >
-              Engineering Solutions
+              {brand.tagline}
             </span>
           </span>
         </Link>

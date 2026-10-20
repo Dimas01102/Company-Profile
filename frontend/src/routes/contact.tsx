@@ -14,16 +14,18 @@ import {
 import { SiteLayout } from "@/components/layout/SiteLayout";
 import { PageHero } from "@/components/site/PageHero";
 import { Breadcrumb } from "@/components/site/Breadcrumb";
-import { company, faqs, submitContact } from "@/lib/mock-data";
+import { faqs, submitContact } from "@/lib/mock-data";
+import { getPublicCompany } from "@/lib/public-data";
 
 export const Route = createFileRoute("/contact")({
+  loader: async () => ({ company: await getPublicCompany() }),
   head: () => ({
     meta: [
-      { title: "Contact — PT Batam Konektra Jaya" },
+      { title: "Contact | PT Batam Konektra Jaya" },
       {
         name: "description",
         content:
-          "Talk to Konektra's sales and engineering team — send a message, call, or reach us on WhatsApp.",
+          "Talk to Konektra's sales and engineering team, send a message, call, or reach us on WhatsApp.",
       },
     ],
   }),
@@ -33,6 +35,7 @@ export const Route = createFileRoute("/contact")({
 type Status = "idle" | "sending" | "sent" | "error";
 
 function ContactPage() {
+  const { company } = Route.useLoaderData();
   const [status, setStatus] = useState<Status>("idle");
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -63,7 +66,7 @@ function ContactPage() {
       <PageHero
         eyebrow="Contact Us"
         title="Talk to our sales and engineering team."
-        description="Send us a message about your project. Our team replies within one business day — or reach us instantly via WhatsApp."
+        description="Send us a message about your project. Our team replies within one business day, or reach us instantly via WhatsApp."
       />
       <Breadcrumb items={[{ label: "Contact" }]} />
 
@@ -110,28 +113,33 @@ function ContactPage() {
             <InfoRow icon={Phone} label="Phone" value={company.phone} />
             <InfoRow icon={Mail} label="Email" value={company.email} />
 
-            <div className="border-l-2 border-accent bg-card p-5">
-              <div className="flex items-center gap-3">
-                <Clock className="h-5 w-5 text-secondary" />
-                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Business Hours
+            {company.hoursDetail.length > 0 && (
+              <div className="border-l-2 border-accent bg-card p-5">
+                <div className="flex items-center gap-3">
+                  <Clock className="h-5 w-5 text-secondary" />
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Business Hours
+                  </div>
                 </div>
+                <ul className="mt-4 divide-y divide-border text-sm">
+                  {company.hoursDetail.map((h, i) => (
+                    <li
+                      key={`${h.day}-${i}`}
+                      className="flex items-center justify-between gap-4 py-2"
+                    >
+                      <span className="text-muted-foreground">{h.day}</span>
+                      {h.hours && <span className="font-semibold text-foreground">{h.hours}</span>}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="mt-4 divide-y divide-border text-sm">
-                {company.hoursDetail.map((h) => (
-                  <li key={h.day} className="flex items-center justify-between py-2">
-                    <span className="text-muted-foreground">{h.day}</span>
-                    <span className="font-semibold text-foreground">{h.hours}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            )}
           </div>
 
           {/* Form */}
           <form
             onSubmit={onSubmit}
-            className="bg-card p-8 shadow-[var(--shadow-card)] md:p-10"
+            className="bg-card p-8 shadow-(--shadow-card) md:p-10"
             noValidate
           >
             <h2 className="text-2xl font-bold text-primary">Send a message</h2>
@@ -140,12 +148,12 @@ function ContactPage() {
             </p>
 
             {status === "sent" && (
-              <div className="mt-6 flex items-start gap-3 border border-[color:oklch(0.5_0.15_145/0.3)] bg-[color:oklch(0.95_0.05_145)] p-4 text-sm text-[color:oklch(0.35_0.13_145)]">
+              <div className="mt-6 flex items-start gap-3 border border-[oklch(0.5_0.15_145/0.3)] bg-[oklch(0.95_0.05_145)] p-4 text-sm text-[oklch(0.35_0.13_145)]">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
                 <div>
                   <p className="font-semibold">Message sent successfully</p>
                   <p className="mt-0.5">
-                    Thanks — our sales team will get back to you within one business day.
+                    Thanks, our sales team will get back to you within one business day.
                   </p>
                 </div>
               </div>
@@ -202,7 +210,7 @@ function ContactPage() {
               <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{company.address}</p>
             </div>
             <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(company.address)}`}
+              href={company.mapsLink}
               target="_blank"
               rel="noreferrer"
               className="btn-outline hidden sm:inline-flex"
@@ -210,15 +218,17 @@ function ContactPage() {
               Open in Google Maps
             </a>
           </div>
-          <div className="aspect-[16/9] w-full overflow-hidden border border-border bg-muted">
-            <iframe
-              title="Konektra headquarters map"
-              src={company.mapEmbed}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              className="h-full w-full"
-            />
-          </div>
+          {company.mapEmbed && (
+            <div className="aspect-video w-full overflow-hidden border border-border bg-muted">
+              <iframe
+                title="Konektra headquarters map"
+                src={company.mapEmbed}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                className="h-full w-full"
+              />
+            </div>
+          )}
         </div>
       </section>
 
@@ -246,7 +256,7 @@ function ContactPage() {
         target="_blank"
         rel="noreferrer"
         aria-label="Chat on WhatsApp"
-        className="fixed bottom-6 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[color:oklch(0.7_0.17_150)] text-white shadow-[0_12px_30px_-8px_rgb(0,0,0,0.3)] transition-transform hover:scale-110"
+        className="fixed bottom-6 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[oklch(0.7_0.17_150)] text-white shadow-[0_12px_30px_-8px_rgb(0,0,0,0.3)] transition-transform hover:scale-110"
       >
         <MessageCircle className="h-6 w-6" />
       </a>
@@ -276,7 +286,7 @@ function QuickCard({
         "group flex items-center gap-4 border p-6 transition-all",
         accent
           ? "border-accent bg-accent/10 hover:bg-accent/20"
-          : "border-border bg-card hover:border-primary hover:shadow-[var(--shadow-card-hover)]",
+          : "border-border bg-card hover:border-primary hover:shadow-(--shadow-card-hover)",
       ].join(" ")}
     >
       <span

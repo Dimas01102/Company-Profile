@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useChildMatches } from "@tanstack/react-router";
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,12 +15,13 @@ import { PageHero } from "@/components/site/PageHero";
 import { Breadcrumb } from "@/components/site/Breadcrumb";
 import { ProductCard } from "@/components/site/ProductCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { productAvailabilities, productBrands, productCategories, products } from "@/lib/mock-data";
+import { productAvailabilities, type Product } from "@/lib/mock-data";
+import { getPublicCategories, getPublicProducts } from "@/lib/public-data";
 
 export const Route = createFileRoute("/products")({
   head: () => ({
     meta: [
-      { title: "Product Catalog — PT Batam Konektra Jaya" },
+      { title: "Product Catalog | PT Batam Konektra Jaya" },
       {
         name: "description",
         content:
@@ -28,14 +29,27 @@ export const Route = createFileRoute("/products")({
       },
     ],
   }),
-  component: ProductsPage,
+  component: ProductsPageShell,
 });
 
 type SortKey = "featured" | "name-asc" | "name-desc" | "availability";
 const PAGE_SIZE = 8;
 
+/**
+ * `/products/$slug` is a child route of this one, so the list page must
+ * step aside and render the child (<Outlet />) whenever a detail URL is open,
+ * otherwise the URL changes but the list stays on screen.
+ */
+function ProductsPageShell() {
+  const childMatches = useChildMatches();
+  if (childMatches.length > 0) return <Outlet />;
+  return <ProductsPage />;
+}
+
 function ProductsPage() {
   const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categoryNames, setCategoryNames] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [brand, setBrand] = useState<string>("All");
@@ -45,8 +59,17 @@ function ProductsPage() {
   const [mobileFilters, setMobileFilters] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 450);
-    return () => clearTimeout(t);
+    let alive = true;
+    getPublicProducts()
+      .then((list) => alive && setProducts(list))
+      .catch(() => {})
+      .finally(() => alive && setLoading(false));
+    // Filter options come from the database (Admin > Categories / Products),
+    // not from a hard-coded list.
+    getPublicCategories().then((list) => alive && setCategoryNames(list.map((c) => c.name)));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -78,7 +101,12 @@ function ProductsPage() {
         break;
     }
     return list;
-  }, [query, category, brand, availability, sort]);
+  }, [products, query, category, brand, availability, sort]);
+
+  const brandNames = useMemo(
+    () => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort(),
+    [products],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -103,7 +131,7 @@ function ProductsPage() {
       <PageHero
         eyebrow="Product Catalog"
         title="Industrial power equipment, engineered for reliability."
-        description="Explore our full range of transformers, switchgear, generators and power distribution systems — filter by category, brand and availability."
+        description="Explore our full range of transformers, switchgear, generators and power distribution systems, filter by category, brand and availability."
       />
       <Breadcrumb items={[{ label: "Products" }]} />
 
@@ -122,6 +150,8 @@ function ProductsPage() {
               setAvailability={setAvailability}
               onReset={resetFilters}
               activeFilterCount={activeFilterCount}
+              categories={categoryNames}
+              brands={brandNames}
             />
           </aside>
 
@@ -180,7 +210,7 @@ function ProductsPage() {
               <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="border border-border bg-card">
-                    <Skeleton className="aspect-[4/3] w-full rounded-none" />
+                    <Skeleton className="aspect-4/3 w-full rounded-none" />
                     <div className="space-y-3 p-5">
                       <Skeleton className="h-4 w-3/4" />
                       <Skeleton className="h-3 w-full" />
@@ -243,6 +273,8 @@ function ProductsPage() {
                 setAvailability={setAvailability}
                 onReset={resetFilters}
                 activeFilterCount={activeFilterCount}
+                categories={categoryNames}
+                brands={brandNames}
               />
               <button
                 type="button"
@@ -270,6 +302,8 @@ function FilterPanel(props: {
   setAvailability: (v: string) => void;
   onReset: () => void;
   activeFilterCount: number;
+  categories: string[];
+  brands: string[];
 }) {
   const {
     query,
@@ -282,6 +316,8 @@ function FilterPanel(props: {
     setAvailability,
     onReset,
     activeFilterCount,
+    categories,
+    brands,
   } = props;
 
   return (
@@ -306,15 +342,10 @@ function FilterPanel(props: {
       <FilterGroup
         label="Category"
         value={category}
-        options={["All", ...productCategories]}
+        options={["All", ...categories]}
         onChange={setCategory}
       />
-      <FilterGroup
-        label="Brand"
-        value={brand}
-        options={["All", ...productBrands]}
-        onChange={setBrand}
-      />
+      <FilterGroup label="Brand" value={brand} options={["All", ...brands]} onChange={setBrand} />
       <FilterGroup
         label="Availability"
         value={availability}

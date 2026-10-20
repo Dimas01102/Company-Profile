@@ -148,12 +148,12 @@ export function Notice({ kind, children }: { kind: "success" | "error"; children
       role={success ? "status" : "alert"}
       className={`flex items-start gap-2.5 border-l-2 px-4 py-3 text-sm ${
         success
-          ? "border-[color:var(--success)] bg-[color:var(--success)]/8 text-foreground"
+          ? "border-success bg-(--success)/8 text-foreground"
           : "border-destructive bg-destructive/5 text-destructive"
       }`}
     >
       {success ? (
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--success)]" />
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
       ) : (
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
       )}
@@ -230,9 +230,7 @@ export function StatusPill({ status }: { status: string }) {
   return (
     <span
       className={`inline-flex px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${
-        active
-          ? "bg-[color:var(--success)]/12 text-[color:oklch(0.42_0.13_145)]"
-          : "bg-muted text-muted-foreground"
+        active ? "bg-(--success)/12 text-[oklch(0.42_0.13_145)]" : "bg-muted text-muted-foreground"
       }`}
     >
       {status}

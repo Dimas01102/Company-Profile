@@ -30,14 +30,14 @@ import type { AdminStat } from "@/lib/admin-mock-data";
 export const Route = createFileRoute("/admin/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — Konektra Admin Console" },
+      { title: "Dashboard Konektra Admin Console" },
       {
         name: "description",
         content:
           "Overview of products, employees, news, gallery items, and customer inquiries for PT Batam Konektra Jaya.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Dashboard — Konektra Admin Console" },
+      { property: "og:title", content: "Dashboard Konektra Admin Console" },
       {
         property: "og:description",
         content: "Administrator overview of website content and inquiries.",
@@ -55,9 +55,10 @@ type Data = Awaited<ReturnType<typeof fetchDashboard>>;
 
 const statusStyles: Record<string, string> = {
   New: "bg-[color:var(--info)]/12 text-[color:var(--info)]",
-  "In Review": "bg-accent/15 text-[color:oklch(0.45_0.13_70)]",
-  Quoted: "bg-[color:var(--success)]/12 text-[color:oklch(0.42_0.13_145)]",
-  Closed: "bg-muted text-muted-foreground",
+  Contacted: "bg-accent/15 text-[color:oklch(0.45_0.13_70)]",
+  "In Progress": "bg-accent/15 text-[color:oklch(0.45_0.13_70)]",
+  Completed: "bg-[color:var(--success)]/12 text-[color:oklch(0.42_0.13_145)]",
+  Cancelled: "bg-muted text-muted-foreground",
 };
 
 function Panel({
@@ -83,7 +84,7 @@ function Panel({
 function StatCard({ stat }: { stat: AdminStat }) {
   const Icon = icons[stat.icon];
   return (
-    <div className="border border-border bg-surface p-5 transition-shadow hover:shadow-[var(--shadow-card-hover)]">
+    <div className="border border-border bg-surface p-5 transition-shadow hover:shadow-(--shadow-card-hover)">
       <div className="flex items-start justify-between">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {stat.label}
@@ -214,7 +215,7 @@ function DashboardHome() {
 
             <div className="grid gap-6 lg:grid-cols-3">
               <Panel
-                title="Inquiry overview — last 7 months"
+                title="Inquiry overview last 7 months"
                 action={
                   <span className="text-xs text-muted-foreground">Inquiries vs. quotations</span>
                 }
@@ -263,10 +264,14 @@ function DashboardHome() {
 
             <Panel
               title="Latest inquiries"
-              action={<span className="text-xs text-muted-foreground">8 awaiting reply</span>}
+              action={
+                <span className="text-xs text-muted-foreground">
+                  {data.stats.find((s) => s.key === "inquiries")?.hint}
+                </span>
+              }
             >
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
+                <table className="w-full min-w-180 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/60 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-2.5 font-semibold">Ref</th>
@@ -286,7 +291,7 @@ function DashboardHome() {
                           <span className="block font-medium text-foreground">{q.company}</span>
                           <span className="block text-xs text-muted-foreground">{q.contact}</span>
                         </td>
-                        <td className="max-w-[280px] px-5 py-3 text-muted-foreground">
+                        <td className="max-w-70 px-5 py-3 text-muted-foreground">
                           <span className="line-clamp-1">{q.subject}</span>
                         </td>
                         <td className="px-5 py-3">
@@ -311,12 +316,16 @@ function DashboardHome() {
                 <ul className="divide-y divide-border">
                   {data.products.map((p) => (
                     <li key={p.id} className="flex items-center gap-4 px-5 py-3.5">
-                      <img
-                        src={p.image}
-                        alt={p.name}
-                        loading="lazy"
-                        className="h-12 w-16 shrink-0 object-cover"
-                      />
+                      {p.image ? (
+                        <img
+                          src={p.image}
+                          alt={p.name}
+                          loading="lazy"
+                          className="h-12 w-16 shrink-0 object-cover"
+                        />
+                      ) : (
+                        <div className="h-12 w-16 shrink-0 bg-muted" />
+                      )}
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{p.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -354,10 +363,22 @@ function DashboardHome() {
             <Panel title="Quick actions">
               <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { label: "Add product", icon: Package, to: "/admin/products" },
+                  {
+                    label: "Add product",
+                    icon: Package,
+                    to: "/admin/products",
+                  },
                   { label: "Publish news", icon: Newspaper, to: "/admin/news" },
-                  { label: "Upload gallery item", icon: Images, to: "/admin/gallery" },
-                  { label: "Edit company profile", icon: Building2, to: "/admin/company-profile" },
+                  {
+                    label: "Upload gallery item",
+                    icon: Images,
+                    to: "/admin/gallery",
+                  },
+                  {
+                    label: "Edit company profile",
+                    icon: Building2,
+                    to: "/admin/company-profile",
+                  },
                 ].map(({ label, icon: Icon, to }) => (
                   <button
                     key={label}

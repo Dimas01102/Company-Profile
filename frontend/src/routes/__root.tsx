@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportClientError } from "../lib/error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { getPublicSeo } from "@/lib/public-data";
 
 function NotFoundComponent() {
   return (
@@ -65,36 +66,53 @@ function ErrorComponent({ error, reset }: { error: unknown; reset: () => void })
   );
 }
 
+const DEFAULT_TITLE = "PT Batam Konektra Jaya Industrial Engineering & Power Solutions";
+const DEFAULT_DESCRIPTION =
+  "PT Batam Konektra Jaya supplies transformers, switchgear, and industrial electrical systems to power, energy, and manufacturing companies across Indonesia.";
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "PT Batam Konektra Jaya — Industrial Engineering & Power Solutions" },
-      {
-        name: "description",
-        content:
-          "PT Batam Konektra Jaya supplies transformers, switchgear, and industrial electrical systems to power, energy, and manufacturing companies across Indonesia.",
-      },
-      { name: "author", content: "PT Batam Konektra Jaya" },
-      { property: "og:title", content: "PT Batam Konektra Jaya" },
-      {
-        property: "og:description",
-        content: "Engineering solutions for industrial power and energy infrastructure.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-    links: [
-      { rel: "stylesheet", href: appCss },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap",
-      },
-    ],
-  }),
+  // Site-wide SEO defaults managed in Admin > Company Profile > SEO. Pages that
+  // define their own title/description (products, news, about...) override these.
+  loader: async () => ({ seo: await getPublicSeo() }),
+  staleTime: 60_000,
+  head: ({ loaderData }) => {
+    const seo = loaderData?.seo;
+    const title = seo?.title || DEFAULT_TITLE;
+    const description = seo?.description || DEFAULT_DESCRIPTION;
+    return {
+      meta: [
+        { charSet: "utf-8" },
+        { name: "viewport", content: "width=device-width, initial-scale=1" },
+        { title },
+        { name: "description", content: description },
+        ...(seo?.keywords ? [{ name: "keywords", content: seo.keywords }] : []),
+        { name: "author", content: seo?.siteName || "PT Batam Konektra Jaya" },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        ...(seo?.ogImage
+          ? [
+              { property: "og:image", content: seo.ogImage },
+              { name: "twitter:image", content: seo.ogImage },
+            ]
+          : []),
+        { property: "og:type", content: "website" },
+        { name: "twitter:card", content: "summary_large_image" },
+      ],
+      links: [
+        { rel: "stylesheet", href: appCss },
+        { rel: "preconnect", href: "https://fonts.googleapis.com" },
+        {
+          rel: "preconnect",
+          href: "https://fonts.gstatic.com",
+          crossOrigin: "anonymous",
+        },
+        {
+          rel: "stylesheet",
+          href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap",
+        },
+      ],
+    };
+  },
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,

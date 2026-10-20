@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   ArrowUpDown,
   Calendar,
+  ExternalLink,
   Eye,
   Loader2,
   Newspaper,
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { WebsiteLocation } from "@/components/admin/WebsiteLocation";
 import { useAdminUser } from "@/components/admin/admin-context";
 import {
   Panel,
@@ -37,7 +39,6 @@ import {
   EmptyState,
   ErrorState,
   TableSkeleton,
-  StatusPill,
 } from "@/components/admin/ui";
 import {
   getNewsList,
@@ -46,18 +47,19 @@ import {
   deleteNewsArticle,
   setNewsStatus,
   emptyNewsArticle,
+  estimateReadTime,
   newsCategories,
   newsStatuses,
   slugify,
-  lines,
   formatDate,
   type AdminNewsArticle,
 } from "@/lib/news-service";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/news")({
   head: () => ({
     meta: [
-      { title: "News — Konektra Admin Console" },
+      { title: "News Konektra Admin Console" },
       {
         name: "description",
         content: "Manage news articles published on the PT Batam Konektra Jaya website.",
@@ -68,10 +70,48 @@ export const Route = createFileRoute("/admin/news")({
   component: NewsPage,
 });
 
-type Draft = Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt"> & {
+type Draft = Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt" | "isLive"> & {
   id?: string;
 };
 type SortKey = "date" | "title" | "status";
+
+function FilterLabel({
+  text,
+  className = "",
+  children,
+}: {
+  text: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {text}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/** Draft (grey), Scheduled (amber: Published but waiting for its time), Published (green). */
+function NewsStatusPill({ article }: { article: AdminNewsArticle }) {
+  const scheduled = article.status === "Published" && !article.isLive;
+  const label = scheduled ? "Scheduled" : article.status;
+  const tone =
+    article.status === "Draft"
+      ? "bg-muted text-muted-foreground"
+      : scheduled
+        ? "bg-[oklch(0.96_0.04_70)] text-[oklch(0.45_0.13_70)]"
+        : "bg-(--success)/12 text-[oklch(0.42_0.13_145)]";
+  return (
+    <span
+      className={`inline-flex px-2 py-1 text-[10px] font-semibold uppercase tracking-wider ${tone}`}
+    >
+      {label}
+    </span>
+  );
+}
 
 function NewsPage() {
   const user = useAdminUser();
@@ -88,12 +128,33 @@ function NewsPage() {
   const [perPage, setPerPage] = useState(8);
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [removeGalleryIds, setRemoveGalleryIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminNewsArticle | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<AdminNewsArticle | null>(null);
+
+  // Preview URLs for files picked in the form (revoked when replaced or closed).
+  const [thumbnailPreview, setThumbnailPreview] = useState("");
+  const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
+  useEffect(() => {
+    if (!thumbnailFile) {
+      setThumbnailPreview("");
+      return;
+    }
+    const url = URL.createObjectURL(thumbnailFile);
+    setThumbnailPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [thumbnailFile]);
+  useEffect(() => {
+    const urls = galleryFiles.map((f) => URL.createObjectURL(f));
+    setGalleryPreviews(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, [galleryFiles]);
 
   function load() {
     setLoadError(false);
@@ -144,11 +205,17 @@ function NewsPage() {
 
   function openCreate() {
     setErrors({});
+    setThumbnailFile(null);
+    setGalleryFiles([]);
+    setRemoveGalleryIds([]);
     setDraft(emptyNewsArticle());
   }
 
   function openEdit(article: AdminNewsArticle) {
     setErrors({});
+    setThumbnailFile(null);
+    setGalleryFiles([]);
+    setRemoveGalleryIds([]);
     setDraft({ ...article });
   }
 
@@ -176,19 +243,24 @@ function NewsPage() {
     }
     setSaving(true);
     const { id, ...payload } = draft;
+    const files = {
+      thumbnailFile: thumbnailFile ?? undefined,
+      galleryFiles: galleryFiles.length ? galleryFiles : undefined,
+      removeGalleryIds: removeGalleryIds.length ? removeGalleryIds : undefined,
+    };
     try {
       if (id) {
-        const updated = await updateNewsArticle(id, payload);
+        const updated = await updateNewsArticle(id, payload, files);
         setRows((prev) => (prev ?? []).map((n) => (n.id === id ? updated : n)));
         toast.success("Article updated.");
       } else {
-        const created = await createNewsArticle(payload);
+        const created = await createNewsArticle(payload, files);
         setRows((prev) => [created, ...(prev ?? [])]);
         toast.success("Article created.");
       }
       setDraft(null);
-    } catch {
-      toast.error("Could not save the article. Please try again.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save the article. Please try again."));
     } finally {
       setSaving(false);
     }
@@ -202,8 +274,8 @@ function NewsPage() {
       setRows((prev) => (prev ?? []).filter((n) => n.id !== deleteTarget.id));
       toast.success("Article deleted.");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Could not delete the article.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not delete the article."));
     } finally {
       setDeleting(false);
     }
@@ -216,8 +288,8 @@ function NewsPage() {
       const updated = await setNewsStatus(article.id, next);
       setRows((prev) => (prev ?? []).map((n) => (n.id === article.id ? updated : n)));
       toast.success(next === "Published" ? "Article published." : "Article unpublished.");
-    } catch {
-      toast.error("Could not change the article status.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not change the article status."));
     } finally {
       setBusyId(null);
     }
@@ -232,6 +304,7 @@ function NewsPage() {
       />
 
       <div className="space-y-6 p-5 lg:p-8">
+        <WebsiteLocation feature="news" />
         <Panel padded={false}>
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <div>
@@ -249,62 +322,70 @@ function NewsPage() {
 
         <Panel padded={false}>
           <div className="grid gap-3 border-b border-border p-5 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="relative sm:col-span-2 lg:col-span-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={query}
+            <FilterLabel text="Search" className="sm:col-span-2 lg:col-span-1">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Title, author or summary"
+                  className="h-10 w-full border border-input bg-background pl-9 pr-3 text-sm outline-none focus:border-secondary"
+                />
+              </div>
+            </FilterLabel>
+            <FilterLabel text="Category">
+              <select
+                value={categoryFilter}
                 onChange={(e) => {
-                  setQuery(e.target.value);
+                  setCategoryFilter(e.target.value);
                   setPage(1);
                 }}
-                placeholder="Search title, author..."
-                className="h-10 w-full border border-input bg-background pl-9 pr-3 text-sm outline-none focus:border-secondary"
+                className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
+              >
+                {["All categories", ...newsCategories].map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </FilterLabel>
+            <FilterLabel text="Status">
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
+              >
+                {["All statuses", ...newsStatuses].map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </FilterLabel>
+            <FilterLabel text="Publish date from">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
               />
-            </div>
-            <select
-              value={categoryFilter}
-              onChange={(e) => {
-                setCategoryFilter(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
-            >
-              {["All categories", ...newsCategories].map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
-            >
-              {["All statuses", ...newsStatuses].map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
-              aria-label="From date"
-            />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
-              }}
-              className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
-              aria-label="To date"
-            />
+            </FilterLabel>
+            <FilterLabel text="Publish date to">
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setPage(1);
+                }}
+                className="h-10 w-full border border-input bg-background px-3 text-sm outline-none focus:border-secondary"
+              />
+            </FilterLabel>
           </div>
 
           {rows === null && !loadError && <TableSkeleton rows={6} />}
@@ -329,7 +410,7 @@ function NewsPage() {
           {rows !== null && !loadError && filtered.length > 0 && (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[960px] text-sm">
+                <table className="w-full min-w-240 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/50 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-3">
@@ -390,10 +471,22 @@ function NewsPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3">
-                          <StatusPill status={n.status} />
+                          <NewsStatusPill article={n} />
                         </td>
                         <td className="px-5 py-3">
                           <div className="flex items-center justify-end gap-1.5">
+                            {n.isLive && (
+                              <a
+                                href={`/news/${n.slug}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`Open ${n.title} on the website`}
+                                title="Open on the website"
+                                className="btn-icon"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            )}
                             <button
                               type="button"
                               onClick={() => setPreview(n)}
@@ -511,7 +604,11 @@ function NewsPage() {
                   value={draft.title}
                   error={errors.title}
                   onChange={(v) =>
-                    setDraft({ ...draft, title: v, slug: draft.id ? draft.slug : slugify(v) })
+                    setDraft({
+                      ...draft,
+                      title: v,
+                      slug: draft.id ? draft.slug : slugify(v),
+                    })
                   }
                 />
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -541,12 +638,15 @@ function NewsPage() {
                     type="date"
                     value={draft.date}
                     error={errors.date}
+                    hint="The date printed on the article. It does not control when the article goes live."
                     onChange={(v) => setDraft({ ...draft, date: v })}
                   />
                   <Field
-                    label="Read time"
-                    value={draft.readTime}
-                    onChange={(v) => setDraft({ ...draft, readTime: v })}
+                    label="Read time (automatic)"
+                    value={estimateReadTime(draft.content)}
+                    disabled
+                    hint="Calculated from the full content."
+                    onChange={() => {}}
                   />
                 </div>
               </div>
@@ -597,30 +697,50 @@ function NewsPage() {
                 <div className="border border-dashed border-border bg-muted/40 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <span className="flex h-12 w-12 items-center justify-center bg-primary/10 text-xs font-semibold text-primary">
-                        IMG
-                      </span>
-                      <div>
+                      <div className="h-12 w-12 overflow-hidden bg-primary/10">
+                        {(thumbnailPreview || draft.thumbnail) && (
+                          <img
+                            src={thumbnailPreview || draft.thumbnail}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold text-foreground">Thumbnail</p>
-                        <p className="text-xs text-muted-foreground">
-                          {draft.thumbnail || "JPG or PNG, at least 1200 × 800 px."}
+                        <p className="max-w-xs truncate text-xs text-muted-foreground">
+                          {thumbnailFile?.name ||
+                            (draft.thumbnail
+                              ? "Current image"
+                              : "JPG, PNG or WebP, 1200 × 800 px.")}
                         </p>
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDraft({ ...draft, thumbnail: `${draft.slug || "article"}-cover.jpg` })
-                        }
-                        className="btn-outline h-9 px-3 text-sm"
-                      >
-                        <Upload className="h-4 w-4" /> Choose file
-                      </button>
-                      {draft.thumbnail && (
+                      <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                        <Upload className="h-4 w-4" />
+                        {draft.thumbnail ? "Replace" : "Choose file"}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setThumbnailFile(file);
+                              setDraft({ ...draft, thumbnail: file.name });
+                            }
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      {(thumbnailFile || draft.thumbnail) && (
                         <button
                           type="button"
-                          onClick={() => setDraft({ ...draft, thumbnail: "" })}
+                          onClick={() => {
+                            setThumbnailFile(null);
+                            setDraft({ ...draft, thumbnail: "" });
+                          }}
                           className="btn-outline h-9 px-3 text-sm text-destructive"
                         >
                           Remove
@@ -629,13 +749,72 @@ function NewsPage() {
                     </div>
                   </div>
                 </div>
-                <TextAreaField
-                  label="Gallery images"
-                  value={draft.gallery.join("\n")}
-                  rows={2}
-                  hint="One filename per line — additional images shown in the article body."
-                  onChange={(v) => setDraft({ ...draft, gallery: lines(v) })}
-                />
+
+                <div>
+                  <p className="mb-2 text-sm font-medium text-foreground">Gallery images</p>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {draft.gallery
+                      .filter((g) => !removeGalleryIds.includes(g.id))
+                      .map((g) => (
+                        <div
+                          key={g.id}
+                          className="relative h-16 w-16 overflow-hidden border border-border"
+                        >
+                          <img src={g.url} alt="" className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            aria-label="Remove image"
+                            onClick={() => setRemoveGalleryIds((prev) => [...prev, g.id])}
+                            className="absolute right-0 top-0 bg-destructive p-0.5 text-destructive-foreground"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    {galleryPreviews.map((url, i) => (
+                      <div
+                        key={url}
+                        className="relative h-16 w-16 overflow-hidden border border-dashed border-secondary"
+                        title="New image, saved when you press Save"
+                      >
+                        <img src={url} alt="" className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          aria-label="Remove new image"
+                          onClick={() =>
+                            setGalleryFiles((prev) => prev.filter((_, idx) => idx !== i))
+                          }
+                          className="absolute right-0 top-0 bg-destructive p-0.5 text-destructive-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {galleryFiles.length > 0 && (
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      {galleryFiles.length} new image(s) selected. Press Save to upload them.
+                    </p>
+                  )}
+                  <label className="btn-outline inline-flex h-9 cursor-pointer items-center px-3 text-sm">
+                    <Upload className="h-4 w-4" /> Add gallery images
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files ?? []);
+                        if (files.length) setGalleryFiles((prev) => [...prev, ...files]);
+                        // Reset so the same file (or another batch) can be added again.
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Shown as a photo grid at the bottom of the article page.
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-4 border-t border-border pt-5">
@@ -645,19 +824,45 @@ function NewsPage() {
                 <Field
                   label="Meta title"
                   value={draft.metaTitle}
+                  placeholder={draft.title}
+                  hint={`Title in the browser tab and in Google results. Leave empty to use the article title. ${draft.metaTitle.length}/60 characters recommended.`}
                   onChange={(v) => setDraft({ ...draft, metaTitle: v })}
                 />
                 <TextAreaField
                   label="Meta description"
                   value={draft.metaDescription}
                   rows={2}
+                  hint={`Short text under the title in Google results. Leave empty to use the summary. ${draft.metaDescription.length}/160 characters recommended.`}
                   onChange={(v) => setDraft({ ...draft, metaDescription: v })}
                 />
                 <Field
                   label="Meta keywords"
                   value={draft.metaKeywords}
+                  hint="Comma-separated words. Search engines mostly ignore this today, so it is optional."
                   onChange={(v) => setDraft({ ...draft, metaKeywords: v })}
                 />
+                <div className="border border-border bg-background p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Search result preview
+                  </p>
+                  <p className="mt-2 truncate text-base text-[#1a0dab]">
+                    {(draft.metaTitle || draft.title || "Article title") +
+                      " | PT Batam Konektra Jaya"}
+                  </p>
+                  <p className="truncate text-xs text-[#006621]">
+                    {typeof window !== "undefined" ? window.location.origin : ""}/news/
+                    {draft.slug || "article-slug"}
+                  </p>
+                  <p className="line-clamp-2 text-sm text-muted-foreground">
+                    {draft.metaDescription || draft.summary || "The summary appears here."}
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  How to test: save the article as Published, open it on the website, then right
+                  click the page and choose View page source. Search for <code>&lt;title&gt;</code>{" "}
+                  and <code>name=&quot;description&quot;</code> to see these values. Google needs
+                  days or weeks to show changes in real results.
+                </p>
               </div>
 
               <div className="space-y-4 border-t border-border pt-5">
@@ -670,14 +875,17 @@ function NewsPage() {
                     value={draft.status}
                     options={newsStatuses}
                     onChange={(v) =>
-                      setDraft({ ...draft, status: v as AdminNewsArticle["status"] })
+                      setDraft({
+                        ...draft,
+                        status: v as AdminNewsArticle["status"],
+                      })
                     }
                   />
                   <Field
                     label="Scheduled publish (optional)"
                     type="datetime-local"
                     value={draft.scheduledAt}
-                    hint="Leave blank to publish immediately when status is set to Published."
+                    hint="Optional. Only used when Status is Published: the article stays hidden from the website until this date and time (Jakarta time). Leave empty to go live immediately."
                     onChange={(v) => setDraft({ ...draft, scheduledAt: v })}
                   />
                 </div>
@@ -711,7 +919,7 @@ function NewsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Preview dialog — mirrors the structure a public detail page would use */}
+      {/* Preview dialog mirrors the structure a public detail page would use */}
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto rounded-none">
           <DialogHeader>
@@ -722,7 +930,7 @@ function NewsPage() {
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-secondary">
                 <Newspaper className="h-3.5 w-3.5" />
                 {preview.category}
-                <StatusPill status={preview.status} />
+                <NewsStatusPill article={preview} />
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-primary">{preview.title}</h1>
               <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
@@ -731,9 +939,7 @@ function NewsPage() {
                 <span>{preview.readTime}</span>
               </div>
               {preview.thumbnail && (
-                <div className="flex h-40 items-center justify-center border border-dashed border-border bg-muted/40 text-xs text-muted-foreground">
-                  {preview.thumbnail}
-                </div>
+                <img src={preview.thumbnail} alt="" className="aspect-video w-full object-cover" />
               )}
               <p className="text-sm font-medium text-foreground">{preview.summary}</p>
               <div className="space-y-3 text-sm leading-relaxed text-muted-foreground">
@@ -741,6 +947,13 @@ function NewsPage() {
                   <p key={i}>{p}</p>
                 ))}
               </div>
+              {preview.gallery.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {preview.gallery.map((g) => (
+                    <img key={g.id} src={g.url} alt="" className="aspect-4/3 w-full object-cover" />
+                  ))}
+                </div>
+              )}
               {preview.tags && (
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                   {preview.tags.split(",").map((t) => (

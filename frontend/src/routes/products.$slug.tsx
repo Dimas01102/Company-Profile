@@ -1,39 +1,47 @@
 import { useState } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, Mail, Phone } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  Mail,
+  Phone,
+} from "lucide-react";
 
 import { SiteLayout } from "@/components/layout/SiteLayout";
 import { ProductCard } from "@/components/site/ProductCard";
 import { Button } from "@/components/ui/button";
-import {
-  company,
-  getProductDetail,
-  products,
-  relatedProducts,
-  type Product,
-  type ProductDetail,
-} from "@/lib/mock-data";
+import { company, type Product, type ProductDetail } from "@/lib/mock-data";
+import { getPublicProduct } from "@/lib/public-data";
 
 type LoaderData = { product: ProductDetail; related: Product[] };
 
 export const Route = createFileRoute("/products/$slug")({
-  loader: ({ params }): LoaderData => {
-    const product = products.find((p) => p.slug === params.slug);
-    if (!product) throw notFound();
-    return { product: getProductDetail(product), related: relatedProducts(product) };
+  loader: async ({ params }): Promise<LoaderData> => {
+    const result = await getPublicProduct(params.slug);
+    if (!result) throw notFound();
+    const { related, ...product } = result;
+    return { product: product as ProductDetail, related };
   },
 
   head: ({ loaderData }) => {
     const p = loaderData?.product;
-    const title = p ? `${p.name} — PT Batam Konektra Jaya` : "Product — PT Batam Konektra Jaya";
-    const description = p?.shortDescription ?? "Industrial power product detail.";
+    const title = p
+      ? `${p.metaTitle || p.name} | PT Batam Konektra Jaya`
+      : "Product | PT Batam Konektra Jaya";
+    const description =
+      p?.metaDescription || p?.shortDescription || "Industrial power product detail.";
+    const shareImage = p?.ogImage || p?.image;
     return {
       meta: [
         { title },
         { name: "description", content: description },
         { property: "og:title", content: title },
         { property: "og:description", content: description },
-        ...(p?.image ? [{ property: "og:image", content: p.image }] : []),
+        ...(p?.keywords ? [{ name: "keywords", content: p.keywords }] : []),
+        ...(shareImage ? [{ property: "og:image", content: shareImage }] : []),
       ],
     };
   },
@@ -55,9 +63,9 @@ export const Route = createFileRoute("/products/$slug")({
 });
 
 const availabilityStyles: Record<string, string> = {
-  "In Stock": "bg-[color:oklch(0.95_0.05_145)] text-[color:oklch(0.4_0.13_145)]",
-  "Made to Order": "bg-[color:oklch(0.96_0.04_70)] text-[color:oklch(0.45_0.13_70)]",
-  "Pre-Order": "bg-[color:oklch(0.94_0.04_254)] text-[color:oklch(0.4_0.14_254)]",
+  Available: "bg-[color:oklch(0.95_0.05_145)] text-[color:oklch(0.4_0.13_145)]",
+  "Limited Stock": "bg-[color:oklch(0.96_0.04_70)] text-[color:oklch(0.45_0.13_70)]",
+  "Out of Stock": "bg-[color:oklch(0.94_0.04_254)] text-[color:oklch(0.4_0.14_254)]",
 };
 
 function ProductDetail() {
@@ -87,12 +95,18 @@ function ProductDetail() {
         <div className="container-page grid gap-10 lg:grid-cols-2">
           {/* Gallery */}
           <div>
-            <div className="relative aspect-[4/3] overflow-hidden border border-border bg-muted">
-              <img
-                src={gallery[active]}
-                alt={product.name}
-                className="h-full w-full object-cover"
-              />
+            <div className="relative aspect-4/3 overflow-hidden border border-border bg-muted">
+              {gallery[active] ? (
+                <img
+                  src={gallery[active]}
+                  alt={product.name}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="grid h-full w-full place-items-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  No image
+                </div>
+              )}
               <span className="absolute left-4 top-4 inline-flex items-center bg-primary px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
                 {product.category}
               </span>
@@ -105,7 +119,7 @@ function ProductDetail() {
                     type="button"
                     onClick={() => setActive(i)}
                     className={[
-                      "aspect-[4/3] overflow-hidden border transition-all",
+                      "aspect-4/3 overflow-hidden border transition-all",
                       i === active
                         ? "border-secondary ring-2 ring-secondary/30"
                         : "border-border hover:border-secondary/60",
@@ -133,7 +147,12 @@ function ProductDetail() {
               >
                 {product.availability}
               </span>
-              <span className="text-xs text-muted-foreground">SKU: {product.id.toUpperCase()}</span>
+              {product.sku && (
+                <span className="text-xs text-muted-foreground">SKU: {product.sku}</span>
+              )}
+              {product.model && (
+                <span className="text-xs text-muted-foreground">Model: {product.model}</span>
+              )}
             </div>
 
             <p className="mt-5 text-base leading-relaxed text-muted-foreground">
@@ -173,6 +192,27 @@ function ProductDetail() {
               </Button>
             </div>
 
+            {(product.brochure || product.datasheet) && (
+              <div className="mt-3 flex flex-wrap gap-3">
+                {product.brochure && (
+                  <Button asChild variant="outline">
+                    <a href={product.brochure} target="_blank" rel="noopener noreferrer">
+                      <Download className="mr-1 h-4 w-4" />
+                      Download Brochure
+                    </a>
+                  </Button>
+                )}
+                {product.datasheet && (
+                  <Button asChild variant="outline">
+                    <a href={product.datasheet} target="_blank" rel="noopener noreferrer">
+                      <Download className="mr-1 h-4 w-4" />
+                      Download Datasheet
+                    </a>
+                  </Button>
+                )}
+              </div>
+            )}
+
             <div className="mt-6 flex flex-col gap-1 text-sm text-muted-foreground">
               <span className="inline-flex items-center gap-2">
                 <Phone className="h-4 w-4 text-secondary" />
@@ -208,6 +248,20 @@ function ProductDetail() {
               ))}
             </ul>
 
+            {product.advantages && product.advantages.length > 0 && (
+              <>
+                <h3 className="mt-10 text-xl font-bold">Advantages</h3>
+                <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {product.advantages.map((a) => (
+                    <li key={a} className="flex items-start gap-2 text-sm text-foreground">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-secondary" />
+                      <span>{a}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
             <h3 className="mt-10 text-xl font-bold">Applications</h3>
             <ul className="mt-4 grid gap-2 sm:grid-cols-2">
               {product.applications.map((a) => (
@@ -217,6 +271,19 @@ function ProductDetail() {
                 </li>
               ))}
             </ul>
+
+            {product.industries && product.industries.length > 0 && (
+              <>
+                <h3 className="mt-10 text-xl font-bold">Industries Served</h3>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {product.industries.map((i) => (
+                    <span key={i} className="bg-muted px-3 py-1.5 text-sm text-foreground">
+                      {i}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Specs card */}

@@ -10,7 +10,7 @@ import { getActivityLogs, activityModules, type ActivityLog } from "@/lib/activi
 export const Route = createFileRoute("/admin/activity-logs")({
   head: () => ({
     meta: [
-      { title: "Activity Logs — Konektra Admin Console" },
+      { title: "Activity Logs Konektra Admin Console" },
       {
         name: "description",
         content: "Audit trail of admin actions across the PT Batam Konektra Jaya website.",
@@ -167,7 +167,7 @@ function ActivityLogsPage() {
           {rows !== null && !loadError && filtered.length > 0 && (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[960px] text-sm">
+                <table className="w-full min-w-240 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/50 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-3">

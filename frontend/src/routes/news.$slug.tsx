@@ -5,28 +5,30 @@ import { SiteLayout } from "@/components/layout/SiteLayout";
 import { Breadcrumb } from "@/components/site/Breadcrumb";
 import { NewsCard } from "@/components/site/NewsCard";
 import { Button } from "@/components/ui/button";
-import { news, type NewsArticle } from "@/lib/mock-data";
+import { type NewsArticle } from "@/lib/mock-data";
+import { getPublicNewsArticle } from "@/lib/public-data";
 
 type LoaderData = { article: NewsArticle; related: NewsArticle[] };
 
 export const Route = createFileRoute("/news/$slug")({
-  loader: ({ params }): LoaderData => {
-    const article = news.find((n) => n.slug === params.slug);
-    if (!article) throw notFound();
-    const related = news
-      .filter((n) => n.id !== article.id && n.category === article.category)
-      .slice(0, 3);
+  loader: async ({ params }): Promise<LoaderData> => {
+    const result = await getPublicNewsArticle(params.slug);
+    if (!result) throw notFound();
+    const { related, ...article } = result;
     return { article, related };
   },
 
   head: ({ loaderData }) => {
     const a = loaderData?.article;
-    const title = a ? `${a.title} — PT Batam Konektra Jaya` : "News — PT Batam Konektra Jaya";
-    const description = a?.excerpt ?? "Company news and project updates.";
+    const title = a
+      ? `${a.metaTitle || a.title} | PT Batam Konektra Jaya`
+      : "News | PT Batam Konektra Jaya";
+    const description = a?.metaDescription || a?.excerpt || "Company news and project updates.";
     return {
       meta: [
         { title },
         { name: "description", content: description },
+        ...(a?.metaKeywords ? [{ name: "keywords", content: a.metaKeywords }] : []),
         { property: "og:title", content: title },
         { property: "og:description", content: description },
         ...(a?.image ? [{ property: "og:image", content: a.image }] : []),
@@ -92,9 +94,11 @@ function NewsDetailPage() {
             </span>
           </div>
 
-          <div className="mt-8 aspect-[16/9] overflow-hidden bg-muted">
-            <img src={article.image} alt={article.title} className="h-full w-full object-cover" />
-          </div>
+          {article.image && (
+            <div className="mt-8 aspect-video overflow-hidden bg-muted">
+              <img src={article.image} alt={article.title} className="h-full w-full object-cover" />
+            </div>
+          )}
 
           <div className="prose prose-neutral mt-8 max-w-none text-foreground">
             {paragraphs.map((p, i) => (
@@ -103,6 +107,27 @@ function NewsDetailPage() {
               </p>
             ))}
           </div>
+
+          {article.gallery && article.gallery.length > 0 && (
+            <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {article.gallery.map((src, i) => (
+                <a
+                  key={src}
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block aspect-4/3 overflow-hidden bg-muted"
+                >
+                  <img
+                    src={src}
+                    alt={`${article.title} photo ${i + 1}`}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                  />
+                </a>
+              ))}
+            </div>
+          )}
 
           {article.tags && article.tags.length > 0 && (
             <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-border pt-6">

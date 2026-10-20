@@ -3,23 +3,29 @@ import { ArrowRight } from "lucide-react";
 import type { Product } from "@/lib/mock-data";
 
 const availabilityStyles: Record<Product["availability"], string> = {
-  "In Stock": "bg-[color:oklch(0.95_0.05_145)] text-[color:oklch(0.4_0.13_145)]",
-  "Made to Order": "bg-[color:oklch(0.96_0.04_70)] text-[color:oklch(0.45_0.13_70)]",
-  "Pre-Order": "bg-[color:oklch(0.94_0.04_254)] text-[color:oklch(0.4_0.14_254)]",
+  Available: "bg-[color:oklch(0.95_0.05_145)] text-[color:oklch(0.4_0.13_145)]",
+  "Limited Stock": "bg-[color:oklch(0.96_0.04_70)] text-[color:oklch(0.45_0.13_70)]",
+  "Out of Stock": "bg-[color:oklch(0.94_0.04_254)] text-[color:oklch(0.4_0.14_254)]",
 };
 
 export function ProductCard({ product }: { product: Product }) {
   return (
-    <article className="group flex flex-col overflow-hidden border border-border bg-card transition-shadow duration-200 hover:shadow-[var(--shadow-card-hover)]">
-      <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-        <img
-          src={product.image}
-          alt={product.name}
-          loading="lazy"
-          width={1024}
-          height={768}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-        />
+    <article className="group flex flex-col overflow-hidden border border-border bg-card transition-shadow duration-200 hover:shadow-(--shadow-card-hover)">
+      <div className="relative aspect-4/3 overflow-hidden bg-muted">
+        {product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            loading="lazy"
+            width={1024}
+            height={768}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            No image
+          </div>
+        )}
         <span className="absolute left-3 top-3 inline-flex items-center bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
           {product.category}
         </span>

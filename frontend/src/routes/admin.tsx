@@ -8,14 +8,17 @@ import { AdminContext } from "@/components/admin/admin-context";
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "Admin Console — PT Batam Konektra Jaya" },
+      { title: "Admin Console PT Batam Konektra Jaya" },
       {
         name: "description",
         content:
           "Internal administration console for managing PT Batam Konektra Jaya website content, products, news, and inquiries.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Admin Console — PT Batam Konektra Jaya" },
+      {
+        property: "og:title",
+        content: "Admin Console, PT Batam Konektra Jaya",
+      },
       {
         property: "og:description",
         content: "Internal content management console for PT Batam Konektra Jaya.",

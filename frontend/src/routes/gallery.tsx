@@ -6,12 +6,13 @@ import { SiteLayout } from "@/components/layout/SiteLayout";
 import { PageHero } from "@/components/site/PageHero";
 import { Breadcrumb } from "@/components/site/Breadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
-import { galleryAlbums, galleryImages, type GalleryItem } from "@/lib/mock-data";
+import { galleryAlbums, type GalleryItem } from "@/lib/mock-data";
+import { getPublicGallery } from "@/lib/public-data";
 
 export const Route = createFileRoute("/gallery")({
   head: () => ({
     meta: [
-      { title: "Project Gallery — PT Batam Konektra Jaya" },
+      { title: "Project Gallery | PT Batam Konektra Jaya" },
       {
         name: "description",
         content:
@@ -24,24 +25,31 @@ export const Route = createFileRoute("/gallery")({
 
 function GalleryPage() {
   const [loading, setLoading] = useState(true);
+  const [galleryImages, setGalleryImages] = useState<GalleryItem[]>([]);
   const [album, setAlbum] = useState<string>("All");
   const [active, setActive] = useState<number | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 400);
-    return () => clearTimeout(t);
+    let alive = true;
+    getPublicGallery()
+      .then((list) => alive && setGalleryImages(list))
+      .catch(() => {})
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const filtered = useMemo(() => {
     if (album === "All") return galleryImages;
     return galleryImages.filter((g) => g.album === album);
-  }, [album]);
+  }, [album, galleryImages]);
 
   const albumCounts = useMemo(() => {
     const counts: Record<string, number> = { All: galleryImages.length };
     for (const g of galleryImages) counts[g.album] = (counts[g.album] ?? 0) + 1;
     return counts;
-  }, []);
+  }, [galleryImages]);
 
   const close = useCallback(() => setActive(null), []);
   const prev = useCallback(
@@ -126,7 +134,7 @@ function GalleryPage() {
               <p className="mt-2 text-sm text-muted-foreground">Check back soon.</p>
             </div>
           ) : (
-            <div className="grid auto-rows-[180px] grid-cols-2 gap-3 sm:auto-rows-[220px] sm:grid-cols-3 md:grid-cols-4">
+            <div className="grid auto-rows-45 grid-cols-2 gap-3 sm:auto-rows-55 sm:grid-cols-3 md:grid-cols-4">
               {filtered.map((g, i) => (
                 <GalleryTile key={g.id} item={g} onOpen={() => setActive(i)} />
               ))}
@@ -137,7 +145,7 @@ function GalleryPage() {
 
       {/* Lightbox */}
       {active !== null && filtered[active] && (
-        <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm">
+        <div className="fixed inset-0 z-60 bg-black/90 backdrop-blur-sm">
           <button
             type="button"
             aria-label="Close"
@@ -211,7 +219,7 @@ function GalleryTile({ item, onOpen }: { item: GalleryItem; onOpen: () => void }
       />
 
       {/* Hover overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-primary/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      <div className="absolute inset-0 bg-linear-to-t from-primary/80 via-primary/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       {/* Icon */}
       <div className="absolute inset-0 grid place-items-center opacity-0 transition-opacity duration-300 group-hover:opacity-100">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useChildMatches } from "@tanstack/react-router";
 import {
   ArrowRight,
   Calendar,
@@ -17,19 +17,20 @@ import { PageHero } from "@/components/site/PageHero";
 import { Breadcrumb } from "@/components/site/Breadcrumb";
 import { NewsCard } from "@/components/site/NewsCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { news, newsCategories } from "@/lib/mock-data";
+import { newsCategories, type NewsArticle } from "@/lib/mock-data";
+import { getPublicNews } from "@/lib/public-data";
 
 export const Route = createFileRoute("/news")({
   head: () => ({
     meta: [
-      { title: "News & Insights — PT Batam Konektra Jaya" },
+      { title: "News & Insights | PT Batam Konektra Jaya" },
       {
         name: "description",
         content: "Project milestones, industry updates, and company announcements from Konektra.",
       },
     ],
   }),
-  component: NewsPage,
+  component: NewsPageShell,
 });
 
 const PAGE_SIZE = 6;
@@ -42,15 +43,32 @@ function formatDate(d: string) {
   });
 }
 
+/**
+ * `/news/$slug` is a child route of this one, so the list page must
+ * step aside and render the child (<Outlet />) whenever a detail URL is open,
+ * otherwise the URL changes but the list stays on screen.
+ */
+function NewsPageShell() {
+  const childMatches = useChildMatches();
+  if (childMatches.length > 0) return <Outlet />;
+  return <NewsPage />;
+}
+
 function NewsPage() {
   const [loading, setLoading] = useState(true);
+  const [news, setNews] = useState<NewsArticle[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const [page, setPage] = useState(1);
-
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 450);
-    return () => clearTimeout(t);
+    let alive = true;
+    getPublicNews()
+      .then((list) => alive && setNews(list))
+      .catch(() => {})
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -58,13 +76,22 @@ function NewsPage() {
   }, [query, category]);
 
   const featured = news.find((a) => a.featured) ?? news[0];
-  const rest = news.filter((a) => a.id !== featured.id);
+  const rest = useMemo(
+    () => (featured ? news.filter((a) => a.id !== featured.id) : []),
+    [news, featured],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rest.filter((a) => {
       if (category !== "All" && a.category !== category) return false;
-      if (q && !`${a.title} ${a.excerpt} ${a.category}`.toLowerCase().includes(q)) return false;
+      if (
+        q &&
+        !`${a.title} ${a.excerpt} ${a.category} ${a.author} ${(a.tags ?? []).join(" ")}`
+          .toLowerCase()
+          .includes(q)
+      )
+        return false;
       return true;
     });
   }, [query, category, rest]);
@@ -80,13 +107,13 @@ function NewsPage() {
     counts["All"] = news.length;
     for (const a of news) counts[a.category] = (counts[a.category] ?? 0) + 1;
     return counts;
-  }, []);
+  }, [news]);
 
   const tagCloud = useMemo(() => {
     const set = new Set<string>();
     for (const a of news) for (const t of a.tags ?? []) set.add(t);
     return Array.from(set);
-  }, []);
+  }, [news]);
 
   return (
     <SiteLayout>
@@ -103,10 +130,11 @@ function NewsPage() {
           <div className="container-page">
             <p className="eyebrow">Featured Story</p>
             <Link
-              to="/news"
-              className="mt-4 grid gap-6 border border-border bg-card transition-shadow hover:shadow-[var(--shadow-card-hover)] md:grid-cols-[1.2fr_1fr]"
+              to="/news/$slug"
+              params={{ slug: featured.slug }}
+              className="mt-4 grid gap-6 border border-border bg-card transition-shadow hover:shadow-(--shadow-card-hover) md:grid-cols-[1.2fr_1fr]"
             >
-              <div className="relative aspect-[16/10] overflow-hidden bg-muted md:aspect-auto">
+              <div className="relative aspect-16/10 overflow-hidden bg-muted md:aspect-auto">
                 <img
                   src={featured.image}
                   alt={featured.title}
@@ -187,7 +215,7 @@ function NewsPage() {
               <div className="grid gap-6 md:grid-cols-2">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="border border-border bg-card">
-                    <Skeleton className="aspect-[16/10] w-full rounded-none" />
+                    <Skeleton className="aspect-16/10 w-full rounded-none" />
                     <div className="space-y-3 p-6">
                       <Skeleton className="h-3 w-1/3" />
                       <Skeleton className="h-5 w-3/4" />
@@ -300,22 +328,28 @@ function NewsPage() {
               </h3>
               <ul className="mt-4 space-y-4">
                 {news.slice(0, 4).map((a) => (
-                  <li key={a.id} className="flex gap-3">
-                    <img
-                      src={a.image}
-                      alt=""
-                      className="h-16 w-20 shrink-0 object-cover"
-                      loading="lazy"
-                    />
-                    <div className="min-w-0">
-                      <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
-                        {a.title}
-                      </p>
-                      <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <User className="h-3 w-3" />
-                        {a.author}
-                      </p>
-                    </div>
+                  <li key={a.id}>
+                    <Link to="/news/$slug" params={{ slug: a.slug }} className="group flex gap-3">
+                      {a.image ? (
+                        <img
+                          src={a.image}
+                          alt=""
+                          className="h-16 w-20 shrink-0 object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="h-16 w-20 shrink-0 bg-muted" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground group-hover:text-primary">
+                          {a.title}
+                        </p>
+                        <p className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <User className="h-3 w-3" />
+                          {a.author}
+                        </p>
+                      </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -327,33 +361,20 @@ function NewsPage() {
               </h3>
               <div className="mt-4 flex flex-wrap gap-2">
                 {tagCloud.map((t) => (
-                  <span
+                  <button
                     key={t}
+                    type="button"
+                    onClick={() => {
+                      setCategory("All");
+                      setQuery(t);
+                    }}
                     className="inline-flex items-center gap-1 border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground hover:border-secondary hover:text-secondary"
                   >
                     <Tag className="h-3 w-3" />
                     {t}
-                  </span>
+                  </button>
                 ))}
               </div>
-            </div>
-
-            <div className="border border-border bg-primary p-6 text-primary-foreground">
-              <h3 className="text-lg font-bold">Newsletter</h3>
-              <p className="mt-2 text-sm text-white/75">
-                Get monthly updates on projects and industrial power insights.
-              </p>
-              <form onSubmit={(e) => e.preventDefault()} className="mt-4 flex flex-col gap-2">
-                <input
-                  type="email"
-                  required
-                  placeholder="your@email.com"
-                  className="border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/60 focus:border-accent focus:outline-none"
-                />
-                <button type="submit" className="btn-accent">
-                  Subscribe
-                </button>
-              </form>
             </div>
           </aside>
         </div>

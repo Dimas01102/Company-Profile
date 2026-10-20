@@ -1,13 +1,9 @@
-// ----------------------------------------------------------------------------
-// MOCK NEWS SERVICE — news article management for the admin console.
-// In-memory only. Each function maps 1:1 to a future Laravel API endpoint.
-// ----------------------------------------------------------------------------
-
-import { news as publicNews, newsCategories as publicNewsCategories } from "@/lib/mock-data";
+import { api } from "@/lib/api-client";
 import { slugify, lines, formatDate } from "@/lib/catalog-service";
-import { logActivity } from "@/lib/activity-log-service";
 
 export type NewsStatus = "Draft" | "Published";
+
+export type NewsGalleryImage = { id: string; url: string };
 
 export type AdminNewsArticle = {
   id: string;
@@ -20,11 +16,13 @@ export type AdminNewsArticle = {
   summary: string;
   content: string;
   thumbnail: string;
-  gallery: string[];
+  gallery: NewsGalleryImage[];
   tags: string;
   featured: boolean;
   status: NewsStatus;
   scheduledAt: string;
+  /** True when the public site can show it now (Published and not waiting for its schedule). */
+  isLive: boolean;
   metaTitle: string;
   metaDescription: string;
   metaKeywords: string;
@@ -32,118 +30,141 @@ export type AdminNewsArticle = {
   updatedAt: string;
 };
 
-export const newsCategories = publicNewsCategories.filter((c) => c !== "All") as string[];
+export const newsCategories = ["Project", "Company", "Technology", "Industry", "Events"];
 export const newsStatuses: NewsStatus[] = ["Draft", "Published"];
 
-function iso(daysAgo: number) {
-  return new Date(Date.now() - daysAgo * 86400000).toISOString();
+type RawNews = {
+  id: number;
+  title: string;
+  slug: string;
+  category: string;
+  author: string;
+  date: string | null;
+  readTime: string | null;
+  summary: string;
+  content: string;
+  thumbnail: string | null;
+  gallery: { id: number; url: string }[] | null;
+  tags: string;
+  featured: boolean;
+  status: NewsStatus;
+  scheduledAt: string | null;
+  isLive?: boolean;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  metaKeywords: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+function normalize(raw: RawNews): AdminNewsArticle {
+  return {
+    id: String(raw.id),
+    title: raw.title,
+    slug: raw.slug,
+    category: raw.category,
+    author: raw.author,
+    date: raw.date ?? "",
+    readTime: raw.readTime ?? "",
+    summary: raw.summary,
+    content: raw.content,
+    thumbnail: raw.thumbnail ?? "",
+    gallery: (raw.gallery ?? []).map((g) => ({ id: String(g.id), url: g.url })),
+    tags: raw.tags ?? "",
+    featured: !!raw.featured,
+    status: raw.status,
+    scheduledAt: raw.scheduledAt ?? "",
+    isLive: raw.isLive ?? raw.status === "Published",
+    metaTitle: raw.metaTitle ?? "",
+    metaDescription: raw.metaDescription ?? "",
+    metaKeywords: raw.metaKeywords ?? "",
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
 }
 
-let newsStore: AdminNewsArticle[] = publicNews.map((n, i) => ({
-  id: n.id,
-  title: n.title,
-  slug: n.slug,
-  category: n.category,
-  author: n.author,
-  date: n.date,
-  readTime: n.readTime,
-  summary: n.excerpt,
-  content: (n.content ?? [n.excerpt]).join("\n\n"),
-  thumbnail: `${n.slug}-cover.jpg`,
-  gallery: [],
-  tags: (n.tags ?? []).join(", "),
-  featured: !!n.featured,
-  status: i === publicNews.length - 1 ? "Draft" : ("Published" as NewsStatus),
-  scheduledAt: "",
-  metaTitle: n.title,
-  metaDescription: n.excerpt,
-  metaKeywords: (n.tags ?? []).join(", "),
-  createdAt: iso(60 - i * 3),
-  updatedAt: iso(i),
-}));
+function toPayload(input: Partial<AdminNewsArticle>) {
+  const {
+    thumbnail: _thumbnail,
+    gallery: _gallery,
+    isLive: _isLive,
+    readTime: _readTime,
+    ...rest
+  } = input;
+  return {
+    ...rest,
+    publishedDate: rest.date,
+  };
+}
 
-const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+export type NewsFiles = {
+  thumbnailFile?: File;
+  galleryFiles?: File[];
+  removeGalleryIds?: string[];
+};
 
-// --- news service (GET/POST/PUT/DELETE /api/admin/news) --------------------
+function withFiles(
+  payload: ReturnType<typeof toPayload>,
+  files?: NewsFiles,
+): { body: Record<string, unknown>; multipart: boolean } {
+  if (!files) return { body: payload, multipart: false };
+  const { thumbnailFile, galleryFiles, removeGalleryIds } = files;
+  const hasFiles = !!(thumbnailFile || galleryFiles?.length || removeGalleryIds?.length);
+  if (!hasFiles) return { body: payload, multipart: false };
+  return {
+    body: {
+      ...payload,
+      ...(thumbnailFile ? { thumbnail: thumbnailFile } : {}),
+      ...(galleryFiles?.length ? { gallery: galleryFiles } : {}),
+      ...(removeGalleryIds?.length ? { removeGalleryIds: removeGalleryIds.map(Number) } : {}),
+    },
+    multipart: true,
+  };
+}
+
 export async function getNewsList(): Promise<AdminNewsArticle[]> {
-  await delay(450);
-  return clone(newsStore).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const raw = await api.get<RawNews[]>("/admin/news", { perPage: 1000 });
+  return raw.map(normalize).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
 export async function getNewsArticle(id: string): Promise<AdminNewsArticle | undefined> {
-  await delay(300);
-  return clone(newsStore.find((n) => n.id === id));
+  const raw = await api.get<RawNews>(`/admin/news/${id}`);
+  return normalize(raw);
 }
 
 export async function createNewsArticle(
-  input: Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt">,
+  input: Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt" | "isLive">,
+  files?: NewsFiles,
 ): Promise<AdminNewsArticle> {
-  await delay(650);
-  const now = new Date().toISOString();
-  const created: AdminNewsArticle = {
-    ...clone(input),
-    id: `n-${Date.now()}`,
-    createdAt: now,
-    updatedAt: now,
-  };
-  newsStore = [created, ...newsStore];
-  logActivity({
-    action: "Create",
-    module: "News",
-    description: "Created a news article",
-    affectedData: created.title,
-  });
-  return created;
+  const { body, multipart } = withFiles(toPayload(input), files);
+  const raw = await api.post<RawNews>("/admin/news", body, multipart);
+  return normalize(raw);
 }
 
 export async function updateNewsArticle(
   id: string,
-  input: Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt">,
+  input: Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt" | "isLive">,
+  files?: NewsFiles,
 ): Promise<AdminNewsArticle> {
-  await delay(650);
-  const existing = newsStore.find((n) => n.id === id);
-  const updated: AdminNewsArticle = {
-    ...clone(input),
-    id,
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  newsStore = newsStore.map((n) => (n.id === id ? updated : n));
-  logActivity({
-    action: "Update",
-    module: "News",
-    description: "Updated a news article",
-    affectedData: updated.title,
-  });
-  return updated;
+  // An emptied thumbnail with no replacement file means "remove the picture".
+  const removeThumbnail = !input.thumbnail && !files?.thumbnailFile;
+  const { body, multipart } = withFiles(
+    { ...toPayload(input), ...(removeThumbnail ? { removeThumbnail: true } : {}) },
+    files,
+  );
+  const raw = await api.put<RawNews>(`/admin/news/${id}`, body, multipart);
+  return normalize(raw);
 }
 
 export async function deleteNewsArticle(id: string): Promise<void> {
-  await delay(500);
-  const target = newsStore.find((n) => n.id === id);
-  newsStore = newsStore.filter((n) => n.id !== id);
-  logActivity({
-    action: "Delete",
-    module: "News",
-    description: "Deleted a news article",
-    affectedData: target?.title ?? id,
-  });
+  await api.delete(`/admin/news/${id}`);
 }
 
 export async function setNewsStatus(id: string, status: NewsStatus): Promise<AdminNewsArticle> {
-  await delay(400);
-  const existing = newsStore.find((n) => n.id === id);
-  if (!existing) throw new Error("Article not found");
-  const updated = { ...existing, status, updatedAt: new Date().toISOString() };
-  newsStore = newsStore.map((n) => (n.id === id ? updated : n));
-  logActivity({
-    action: status === "Published" ? "Publish" : "Unpublish",
-    module: "News",
-    description: status === "Published" ? "Published a news article" : "Unpublished a news article",
-    affectedData: updated.title,
+  const raw = await api.patch<RawNews>(`/admin/news/${id}/status`, {
+    status,
   });
-  return clone(updated);
+  return normalize(raw);
 }
 
 export function relatedNews(article: AdminNewsArticle, all: AdminNewsArticle[]) {
@@ -154,14 +175,23 @@ export function relatedNews(article: AdminNewsArticle, all: AdminNewsArticle[]) 
     .slice(0, 3);
 }
 
-export function emptyNewsArticle(): Omit<AdminNewsArticle, "id" | "createdAt" | "updatedAt"> {
+/** Same rule as the backend: about 200 words per minute, at least 1 minute. */
+export function estimateReadTime(content: string): string {
+  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  return `${Math.max(1, Math.ceil(words / 200))} min read`;
+}
+
+export function emptyNewsArticle(): Omit<
+  AdminNewsArticle,
+  "id" | "createdAt" | "updatedAt" | "isLive"
+> {
   return {
     title: "",
     slug: "",
     category: newsCategories[0] ?? "Company",
     author: "",
     date: new Date().toISOString().slice(0, 10),
-    readTime: "3 min read",
+    readTime: "1 min read",
     summary: "",
     content: "",
     thumbnail: "",

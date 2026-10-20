@@ -1,10 +1,4 @@
-// ----------------------------------------------------------------------------
-// MOCK CATALOG SERVICE — categories + products for the admin console.
-// In-memory only. Each function maps 1:1 to a future Laravel API endpoint.
-// ----------------------------------------------------------------------------
-
-import { products as publicProducts, productBrands } from "@/lib/mock-data";
-import { logActivity } from "@/lib/activity-log-service";
+import { api } from "@/lib/api-client";
 
 export type Status = "Active" | "Inactive";
 export type ProductStatus = "Draft" | "Published" | "Archived";
@@ -19,6 +13,7 @@ export type Category = {
   image: string;
   order: number;
   status: Status;
+  productCount: number;
 };
 
 export type Spec = { label: string; value: string };
@@ -46,6 +41,8 @@ export type AdminProduct = {
   standards: string;
   mainImage: string;
   gallery: string[];
+  /** Database ids of the saved gallery images, in the same order as `gallery`. */
+  galleryIds: string[];
   brochure: string;
   datasheet: string;
   metaTitle: string;
@@ -60,172 +57,25 @@ export type AdminProduct = {
 export const categoryIcons = ["Zap", "Package", "Cpu", "Factory", "Gauge", "PlugZap"] as const;
 
 export const warehouses = [
-  "Batamindo Main Warehouse",
-  "Batu Ampar Depot",
-  "Jakarta Distribution Hub",
+  "Batam Main Plant",
+  "Batam Warehouse B",
+  "Jakarta Distribution Center",
   "Supplier Direct Shipment",
 ] as const;
 
-export const brands = [...productBrands] as string[];
+// Matches the brands used across ProductSeeder, no dedicated endpoint for
+// this yet, so it stays a static list rather than a derived query.
+export const brands = ["Konektra", "Siemens", "ABB", "Schneider Electric", "Perkins", "Cummins"];
 export const productStatuses: ProductStatus[] = ["Draft", "Published", "Archived"];
+export const availabilities: Availability[] = ["Available", "Limited Stock", "Out of Stock"];
 
-// --- availability business rule -------------------------------------------
+// --- availability business rule (mirrors Product::getAvailabilityAttribute on
+// the backend, used for optimistic UI before a save round-trip returns) ----
 export function computeAvailability(stock: number, minStock: number): Availability {
   if (stock <= 0) return "Out of Stock";
   if (stock <= minStock) return "Limited Stock";
   return "Available";
 }
-
-export const availabilities: Availability[] = ["Available", "Limited Stock", "Out of Stock"];
-
-// --- seed data -------------------------------------------------------------
-let categoryStore: Category[] = [
-  {
-    id: "c-001",
-    name: "Transformers",
-    slug: "transformers",
-    description: "Oil-immersed and cast-resin distribution and power transformers up to 36 kV.",
-    icon: "Zap",
-    image: "transformers-category.jpg",
-    order: 1,
-    status: "Active",
-  },
-  {
-    id: "c-002",
-    name: "Switchgear",
-    slug: "switchgear",
-    description: "Low-voltage and medium-voltage switchgear, RMU, and protection panels.",
-    icon: "PlugZap",
-    image: "switchgear-category.jpg",
-    order: 2,
-    status: "Active",
-  },
-  {
-    id: "c-003",
-    name: "Generators",
-    slug: "generators",
-    description: "Prime and standby diesel generator sets with AMF/ATS control systems.",
-    icon: "Gauge",
-    image: "generators-category.jpg",
-    order: 3,
-    status: "Active",
-  },
-  {
-    id: "c-004",
-    name: "Power Distribution",
-    slug: "power-distribution",
-    description: "Busbar trunking, distribution boards, capacitor banks, and control panels.",
-    icon: "Factory",
-    image: "distribution-category.jpg",
-    order: 4,
-    status: "Active",
-  },
-  {
-    id: "c-005",
-    name: "Automation & Control",
-    slug: "automation-control",
-    description: "PLC panels, SCADA integration, and industrial instrumentation.",
-    icon: "Cpu",
-    image: "automation-category.jpg",
-    order: 5,
-    status: "Inactive",
-  },
-];
-
-const seedSpecs: Record<string, Spec[]> = {
-  Transformers: [
-    { label: "Rated Voltage", value: "20 kV / 400 V" },
-    { label: "Frequency", value: "50 Hz" },
-    { label: "Phase", value: "3 Phase" },
-    { label: "Cooling", value: "ONAN" },
-    { label: "Protection Rating", value: "IP54" },
-    { label: "Country of Origin", value: "Indonesia" },
-    { label: "Warranty", value: "24 months" },
-  ],
-  Switchgear: [
-    { label: "Rated Current", value: "up to 6300 A" },
-    { label: "Rated Voltage", value: "690 V" },
-    { label: "Short-Circuit Withstand", value: "100 kA / 1 s" },
-    { label: "Form of Separation", value: "Form 4b" },
-    { label: "Protection Rating", value: "IP42" },
-    { label: "Warranty", value: "12 months" },
-  ],
-  Generators: [
-    { label: "Prime Power", value: "500 kVA" },
-    { label: "Voltage", value: "400 V / 230 V" },
-    { label: "Frequency", value: "50 Hz" },
-    { label: "Engine", value: "Perkins 2506A-E15TAG2" },
-    { label: "Operating Temperature", value: "-10 °C to 50 °C" },
-    { label: "Warranty", value: "12 months / 1000 hours" },
-  ],
-  "Power Distribution": [
-    { label: "Rated Current", value: "2500 A" },
-    { label: "Conductor Material", value: "Electrolytic Copper" },
-    { label: "Protection Rating", value: "IP55" },
-    { label: "Standards", value: "IEC 61439-6" },
-    { label: "Warranty", value: "12 months" },
-  ],
-};
-
-const models: Record<string, string> = {
-  Transformers: "KTX-Series",
-  Switchgear: "MNS-Series",
-  Generators: "PGS-Series",
-  "Power Distribution": "KBT-Series",
-};
-
-function iso(daysAgo: number) {
-  return new Date(Date.now() - daysAgo * 86400000).toISOString();
-}
-
-let productStore: AdminProduct[] = publicProducts.map((p, i) => {
-  const stock = [12, 6, 24, 0, 3, 18, 9, 0, 5, 14, 7, 2][i % 12] ?? 8;
-  const minStock = [5, 8, 10, 5, 5, 6, 4, 3, 6, 5, 5, 4][i % 12] ?? 5;
-  return {
-    id: p.id,
-    name: p.name,
-    sku: `BKJ-${String(i + 1).padStart(4, "0")}`,
-    productCode: `PRD-${p.category.slice(0, 3).toUpperCase()}-${String(i + 1).padStart(3, "0")}`,
-    slug: p.slug,
-    category: p.category,
-    brand: p.brand,
-    model: models[p.category] ?? "Standard",
-    shortDescription: p.shortDescription,
-    stock,
-    minStock,
-    warehouse: warehouses[i % warehouses.length]!,
-    status: (i === 4 ? "Draft" : i === 9 ? "Archived" : "Published") as ProductStatus,
-    specs: seedSpecs[p.category] ?? [{ label: "Country of Origin", value: "Indonesia" }],
-    description:
-      "Engineered and manufactured to international quality standards for demanding industrial and utility environments where reliability, safety, and long service life are non-negotiable.\n\nEach unit is fully tested at our Batam facility and delivered with complete factory test reports.",
-    features:
-      "Type-tested design compliant with international standards\nRobust construction for tropical and industrial environments\nLow maintenance with long operational service life\nFactory acceptance testing on every unit",
-    applications:
-      "Utility distribution networks\nIndustrial plants and manufacturing facilities\nCommercial buildings and data centers\nOil, gas, and offshore installations",
-    advantages:
-      "Local engineering support in Batam\nShort lead time for standard configurations\nSpare parts availability for 10 years",
-    industries:
-      "Power Utility\nOil & Gas\nShipyard & Marine\nElectronics Manufacturing\nData Center",
-    standards: "IEC 60076\nSPLN D3.002\nSNI IEC 61439",
-    mainImage: p.image,
-    gallery: p.gallery ?? [],
-    brochure: `brochure-${p.slug}.pdf`,
-    datasheet: `datasheet-${p.slug}.pdf`,
-    metaTitle: `${p.name} — PT Batam Konektra Jaya`,
-    metaDescription: p.shortDescription,
-    keywords: `${p.category.toLowerCase()}, ${p.brand.toLowerCase()}, industrial electrical, batam`,
-    ogImage: p.image,
-    relatedIds: publicProducts
-      .filter((o) => o.id !== p.id && o.category === p.category)
-      .slice(0, 3)
-      .map((o) => o.id),
-    createdAt: iso(200 - i * 7),
-    updatedAt: iso(i * 3),
-  } satisfies AdminProduct;
-});
-
-const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 export function slugify(value: string) {
   return value
@@ -235,70 +85,189 @@ export function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-// --- category service (GET/POST/PUT/DELETE /api/admin/categories) ----------
-export async function getCategories(): Promise<Category[]> {
-  await delay(450);
-  return clone(categoryStore).sort((a, b) => a.order - b.order);
+export function lines(value: string) {
+  return value
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
-export async function createCategory(input: Omit<Category, "id">): Promise<Category> {
-  await delay(600);
-  const created: Category = { ...clone(input), id: `c-${Date.now()}` };
-  categoryStore = [...categoryStore, created];
-  logActivity({
-    action: "Create",
-    module: "Categories",
-    description: "Created a product category",
-    affectedData: created.name,
+export function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
+}
+
+// --- API <-> frontend type mapping -----------------------------------------
+type RawCategory = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: string;
+  image: string | null;
+  order: number;
+  status: Status;
+  productCount?: number;
+};
+
+type RawSpec = { id: number; label: string; value: string };
+type RawGalleryImage = { id: number; url: string };
+
+type RawProduct = {
+  id: number;
+  name: string;
+  sku: string;
+  productCode: string | null;
+  slug: string;
+  categoryId: number;
+  category: string;
+  brand: string | null;
+  model: string | null;
+  shortDescription: string | null;
+  stock: number;
+  minStock: number;
+  warehouse: string | null;
+  status: ProductStatus;
+  availability: Availability;
+  specs?: RawSpec[];
+  description: string | null;
+  features: string | null;
+  applications: string | null;
+  advantages: string | null;
+  industries: string | null;
+  standards: string | null;
+  mainImage: string | null;
+  gallery?: RawGalleryImage[];
+  brochure: string | null;
+  datasheet: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  keywords: string | null;
+  ogImage: string | null;
+  relatedIds?: number[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+function normalizeCategory(raw: RawCategory): Category {
+  return {
+    id: String(raw.id),
+    name: raw.name,
+    slug: raw.slug,
+    description: raw.description ?? "",
+    icon: raw.icon,
+    image: raw.image ?? "",
+    order: raw.order,
+    status: raw.status,
+    productCount: raw.productCount ?? 0,
+  };
+}
+
+function normalizeProduct(raw: RawProduct): AdminProduct {
+  return {
+    id: String(raw.id),
+    name: raw.name,
+    sku: raw.sku,
+    productCode: raw.productCode ?? "",
+    slug: raw.slug,
+    category: raw.category,
+    brand: raw.brand ?? "",
+    model: raw.model ?? "",
+    shortDescription: raw.shortDescription ?? "",
+    stock: raw.stock,
+    minStock: raw.minStock,
+    warehouse: raw.warehouse ?? "",
+    status: raw.status,
+    specs: (raw.specs ?? []).map((s) => ({ label: s.label, value: s.value })),
+    description: raw.description ?? "",
+    features: raw.features ?? "",
+    applications: raw.applications ?? "",
+    advantages: raw.advantages ?? "",
+    industries: raw.industries ?? "",
+    standards: raw.standards ?? "",
+    mainImage: raw.mainImage ?? "",
+    gallery: (raw.gallery ?? []).map((g) => g.url),
+    galleryIds: (raw.gallery ?? []).map((g) => String(g.id)),
+    brochure: raw.brochure ?? "",
+    datasheet: raw.datasheet ?? "",
+    metaTitle: raw.metaTitle ?? "",
+    metaDescription: raw.metaDescription ?? "",
+    keywords: raw.keywords ?? "",
+    ogImage: raw.ogImage ?? "",
+    relatedIds: (raw.relatedIds ?? []).map(String),
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+  };
+}
+
+// Populated by getCategories(); createProduct/updateProduct resolve a
+// category *name* (what the product form uses) back to the categoryId the
+// API needs.
+let categoryCache: Category[] = [];
+
+async function resolveCategoryId(name: string): Promise<number> {
+  if (!categoryCache.length) await getCategories();
+  const match = categoryCache.find((c) => c.name === name);
+  if (!match) throw new Error(`Unknown category: ${name}`);
+  return Number(match.id);
+}
+
+// --- category service (GET/POST/PUT/DELETE /api/admin/categories) ----------
+export async function getCategories(): Promise<Category[]> {
+  const raw = await api.get<RawCategory[]>("/admin/categories");
+  const list = raw.map(normalizeCategory).sort((a, b) => a.order - b.order);
+  categoryCache = list;
+  return list;
+}
+
+export async function createCategory(
+  input: Omit<Category, "id" | "productCount">,
+  imageFile?: File,
+): Promise<Category> {
+  const { image: _image, ...rest } = input;
+  const payload = imageFile ? { ...rest, image: imageFile } : rest;
+  const raw = await api.post<RawCategory>("/admin/categories", payload, !!imageFile);
+  const created = normalizeCategory(raw);
+  categoryCache = [...categoryCache, created];
   return created;
 }
 
-export async function updateCategory(id: string, input: Omit<Category, "id">): Promise<Category> {
-  await delay(600);
-  const updated: Category = { ...clone(input), id };
-  categoryStore = categoryStore.map((c) => (c.id === id ? updated : c));
-  logActivity({
-    action: "Update",
-    module: "Categories",
-    description: "Updated a product category",
-    affectedData: updated.name,
-  });
+export async function updateCategory(
+  id: string,
+  input: Omit<Category, "id" | "productCount">,
+  imageFile?: File,
+): Promise<Category> {
+  const { image: _image, ...rest } = input;
+  // An emptied image with no replacement file means "remove the picture".
+  const payload = imageFile
+    ? { ...rest, image: imageFile }
+    : { ...rest, ...(input.image ? {} : { removeImage: true }) };
+  const raw = await api.put<RawCategory>(`/admin/categories/${id}`, payload, !!imageFile);
+  const updated = normalizeCategory(raw);
+  categoryCache = categoryCache.map((c) => (c.id === id ? updated : c));
   return updated;
 }
 
 export async function deleteCategory(id: string): Promise<void> {
-  await delay(500);
-  const target = categoryStore.find((c) => c.id === id);
-  categoryStore = categoryStore.filter((c) => c.id !== id);
-  logActivity({
-    action: "Delete",
-    module: "Categories",
-    description: "Deleted a product category",
-    affectedData: target?.name ?? id,
-  });
+  await api.delete(`/admin/categories/${id}`);
+  categoryCache = categoryCache.filter((c) => c.id !== id);
 }
 
 export async function reorderCategory(id: string, direction: "up" | "down"): Promise<Category[]> {
-  await delay(280);
-  const sorted = [...categoryStore].sort((a, b) => a.order - b.order);
-  const index = sorted.findIndex((c) => c.id === id);
-  const target = direction === "up" ? index - 1 : index + 1;
-  if (index < 0 || target < 0 || target >= sorted.length) return clone(sorted);
-  const a = sorted[index]!;
-  const b = sorted[target]!;
-  const swap = a.order;
-  a.order = b.order;
-  b.order = swap;
-  categoryStore = sorted;
-  return clone(sorted).sort((x, y) => x.order - y.order);
+  const raw = await api.patch<RawCategory[]>(`/admin/categories/${id}/reorder`, { direction });
+  const list = raw.map(normalizeCategory).sort((a, b) => a.order - b.order);
+  categoryCache = list;
+  return list;
 }
 
-export function categoryProductCount(name: string) {
-  return productStore.filter((p) => p.category === name).length;
+export function categoryProductCount(name: string): number {
+  return categoryCache.find((c) => c.name === name)?.productCount ?? 0;
 }
 
-export function emptyCategory(order: number): Omit<Category, "id"> {
+export function emptyCategory(order: number): Omit<Category, "id" | "productCount"> {
   return {
     name: "",
     slug: "",
@@ -312,77 +281,124 @@ export function emptyCategory(order: number): Omit<Category, "id"> {
 
 // --- product service (GET/POST/PUT/DELETE /api/admin/products) -------------
 export async function getProducts(): Promise<AdminProduct[]> {
-  await delay(500);
-  return clone(productStore);
+  // The admin UI filters/sorts/paginates client-side over the full catalog,
+  // so ask the API for everything in one call rather than one page at a time.
+  const raw = await api.get<RawProduct[]>("/admin/products", { perPage: 1000 });
+  return raw.map(normalizeProduct);
 }
 
 export async function getProduct(id: string): Promise<AdminProduct | undefined> {
-  await delay(300);
-  return clone(productStore.find((p) => p.id === id));
+  try {
+    const raw = await api.get<RawProduct>(`/admin/products/${id}`);
+    return normalizeProduct(raw);
+  } catch {
+    return undefined;
+  }
 }
 
-export async function createProduct(input: Omit<AdminProduct, "id">): Promise<AdminProduct> {
-  await delay(700);
-  const now = new Date().toISOString();
-  const created: AdminProduct = {
-    ...clone(input),
-    id: `p-${Date.now()}`,
-    createdAt: now,
-    updatedAt: now,
+function toProductPayload(
+  input: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">,
+  categoryId: number,
+) {
+  return {
+    name: input.name,
+    sku: input.sku,
+    productCode: input.productCode,
+    slug: input.slug,
+    categoryId,
+    brand: input.brand,
+    model: input.model,
+    shortDescription: input.shortDescription,
+    stock: input.stock,
+    minStock: input.minStock,
+    warehouse: input.warehouse,
+    status: input.status,
+    // Blank rows are dropped; an empty list is sent as null so the API still
+    // sees the key (multipart drops empty arrays) and clears the saved specs.
+    specs: input.specs.some((s) => s.label.trim())
+      ? input.specs.filter((s) => s.label.trim())
+      : null,
+    description: input.description,
+    features: input.features,
+    applications: input.applications,
+    advantages: input.advantages,
+    industries: input.industries,
+    standards: input.standards,
+    metaTitle: input.metaTitle,
+    metaDescription: input.metaDescription,
+    keywords: input.keywords,
+    relatedIds: input.relatedIds.map(Number),
   };
-  productStore = [created, ...productStore];
-  logActivity({
-    action: "Create",
-    module: "Products",
-    description: "Created a product",
-    affectedData: `${created.sku} — ${created.name}`,
-  });
-  return created;
+}
+
+export type ProductFiles = {
+  mainImageFile?: File;
+  ogImageFile?: File;
+  brochureFile?: File;
+  datasheetFile?: File;
+  galleryFiles?: File[];
+  removeGalleryIds?: string[];
+};
+
+function withFiles(
+  payload: ReturnType<typeof toProductPayload>,
+  files?: ProductFiles,
+): { body: Record<string, unknown>; multipart: boolean } {
+  if (!files) return { body: payload, multipart: false };
+  const { mainImageFile, ogImageFile, brochureFile, datasheetFile, galleryFiles } = files;
+  const removal = files.removeGalleryIds?.length
+    ? { removeGalleryIds: files.removeGalleryIds.map(Number) }
+    : {};
+  const hasFiles = !!(
+    mainImageFile ||
+    ogImageFile ||
+    brochureFile ||
+    datasheetFile ||
+    galleryFiles?.length
+  );
+  if (!hasFiles) return { body: { ...payload, ...removal }, multipart: false };
+  return {
+    body: {
+      ...payload,
+      ...removal,
+      ...(mainImageFile ? { mainImage: mainImageFile } : {}),
+      ...(ogImageFile ? { ogImage: ogImageFile } : {}),
+      ...(brochureFile ? { brochure: brochureFile } : {}),
+      ...(datasheetFile ? { datasheet: datasheetFile } : {}),
+      ...(galleryFiles?.length ? { gallery: galleryFiles } : {}),
+    },
+    multipart: true,
+  };
+}
+
+export async function createProduct(
+  input: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">,
+  files?: ProductFiles,
+): Promise<AdminProduct> {
+  const categoryId = await resolveCategoryId(input.category);
+  const { body, multipart } = withFiles(toProductPayload(input, categoryId), files);
+  const raw = await api.post<RawProduct>("/admin/products", body, multipart);
+  return normalizeProduct(raw);
 }
 
 export async function updateProduct(
   id: string,
-  input: Omit<AdminProduct, "id">,
+  input: Omit<AdminProduct, "id" | "createdAt" | "updatedAt">,
+  files?: ProductFiles,
 ): Promise<AdminProduct> {
-  await delay(700);
-  const updated: AdminProduct = { ...clone(input), id, updatedAt: new Date().toISOString() };
-  productStore = productStore.map((p) => (p.id === id ? updated : p));
-  logActivity({
-    action: "Update",
-    module: "Products",
-    description: "Updated a product",
-    affectedData: `${updated.sku} — ${updated.name}`,
-  });
-  return updated;
+  const categoryId = await resolveCategoryId(input.category);
+  const { body, multipart } = withFiles(toProductPayload(input, categoryId), files);
+  const raw = await api.put<RawProduct>(`/admin/products/${id}`, body, multipart);
+  return normalizeProduct(raw);
 }
 
 export async function deleteProduct(id: string): Promise<void> {
-  await delay(550);
-  const target = productStore.find((p) => p.id === id);
-  productStore = productStore.filter((p) => p.id !== id);
-  productStore = productStore.map((p) => ({
-    ...p,
-    relatedIds: p.relatedIds.filter((r) => r !== id),
-  }));
-  logActivity({
-    action: "Delete",
-    module: "Products",
-    description: "Deleted a product",
-    affectedData: target ? `${target.sku} — ${target.name}` : id,
-  });
+  await api.delete(`/admin/products/${id}`);
 }
 
 export async function getRelatedProducts(id: string): Promise<AdminProduct[]> {
-  await delay(300);
-  const product = productStore.find((p) => p.id === id);
-  if (!product) return [];
-  const manual = productStore.filter((p) => product.relatedIds.includes(p.id));
-  if (manual.length) return clone(manual);
-  return clone(
-    productStore
-      .filter((p) => p.id !== id && (p.category === product.category || p.brand === product.brand))
-      .slice(0, 3),
-  );
+  const raw = await api.get<RawProduct[]>(`/admin/products/${id}/related`);
+  return raw.map(normalizeProduct);
 }
 
 export function relatedFor(product: AdminProduct, all: AdminProduct[]): AdminProduct[] {
@@ -395,8 +411,9 @@ export function relatedFor(product: AdminProduct, all: AdminProduct[]): AdminPro
     .slice(0, 3);
 }
 
-export function emptyProduct(defaultCategory: string): Omit<AdminProduct, "id"> {
-  const now = new Date().toISOString();
+export function emptyProduct(
+  defaultCategory: string,
+): Omit<AdminProduct, "id" | "createdAt" | "updatedAt"> {
   return {
     name: "",
     sku: "",
@@ -422,6 +439,7 @@ export function emptyProduct(defaultCategory: string): Omit<AdminProduct, "id"> 
     standards: "",
     mainImage: "",
     gallery: [],
+    galleryIds: [],
     brochure: "",
     datasheet: "",
     metaTitle: "",
@@ -429,22 +447,5 @@ export function emptyProduct(defaultCategory: string): Omit<AdminProduct, "id"> 
     keywords: "",
     ogImage: "",
     relatedIds: [],
-    createdAt: now,
-    updatedAt: now,
   };
-}
-
-export function lines(value: string) {
-  return value
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-}
-
-export function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 }

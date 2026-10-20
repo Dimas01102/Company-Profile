@@ -13,11 +13,12 @@ import {
   Notice,
 } from "@/components/admin/ui";
 import { getSettings, updateSettings, type WebsiteSettings } from "@/lib/settings-service";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/settings")({
   head: () => ({
     meta: [
-      { title: "Website Settings — Konektra Admin Console" },
+      { title: "Website Settings Konektra Admin Console" },
       {
         name: "description",
         content: "Configure the homepage and footer of the PT Batam Konektra Jaya website.",
@@ -120,8 +121,8 @@ function SettingsPage() {
       setSaved(updated);
       setDraft(updated);
       toast.success("Settings saved.");
-    } catch {
-      toast.error("Could not save settings. Please try again.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save settings. Please try again."));
     } finally {
       setSaving(false);
     }
@@ -151,7 +152,10 @@ function SettingsPage() {
 
   function removeFooterLink(id: string) {
     if (!draft) return;
-    setDraft({ ...draft, footerLinks: draft.footerLinks.filter((l) => l.id !== id) });
+    setDraft({
+      ...draft,
+      footerLinks: draft.footerLinks.filter((l) => l.id !== id),
+    });
   }
 
   return (
@@ -174,7 +178,7 @@ function SettingsPage() {
         {!loadError && draft && (
           <>
             <Panel
-              title="Homepage — Hero"
+              title="Homepage Hero"
               description="The main banner shown at the top of the homepage."
             >
               <div className="space-y-4">
@@ -208,7 +212,7 @@ function SettingsPage() {
             </Panel>
 
             <Panel
-              title="Homepage — Section visibility"
+              title="Homepage Section visibility"
               description="Show or hide sections on the public homepage."
             >
               <div className="grid gap-3 sm:grid-cols-2">
@@ -282,7 +286,11 @@ function SettingsPage() {
                           <input
                             value={link.label}
                             placeholder="Label"
-                            onChange={(e) => updateFooterLink(link.id, { label: e.target.value })}
+                            onChange={(e) =>
+                              updateFooterLink(link.id, {
+                                label: e.target.value,
+                              })
+                            }
                             className={`h-10 w-full border bg-background px-3 text-sm outline-none focus:border-secondary ${
                               errors[`footerLink-${i}-label`]
                                 ? "border-destructive"

@@ -1,10 +1,4 @@
-// ----------------------------------------------------------------------------
-// MOCK GALLERY SERVICE — gallery album/image management for the admin console.
-// In-memory only. Each function maps 1:1 to a future Laravel API endpoint.
-// ----------------------------------------------------------------------------
-
-import { galleryImages, galleryAlbums as publicAlbums } from "@/lib/mock-data";
-import { logActivity } from "@/lib/activity-log-service";
+import { api } from "@/lib/api-client";
 
 export type GalleryStatus = "Active" | "Inactive";
 
@@ -18,94 +12,82 @@ export type AdminGalleryItem = {
   date: string;
   order: number;
   status: GalleryStatus;
+  isVideo: boolean;
+  videoDuration: string;
 };
 
-export const galleryAlbums = publicAlbums.filter((a) => a !== "All") as string[];
+export const galleryAlbums = ["Substations", "Manufacturing", "Projects", "Videos"];
 
-const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+type RawGalleryItem = {
+  id: number;
+  title: string;
+  caption: string | null;
+  image: string;
+  album: string;
+  tags: string;
+  date: string | null;
+  order: number;
+  status: GalleryStatus;
+  isVideo: boolean | null;
+  videoDuration: string | null;
+};
 
-function iso(daysAgo: number) {
-  return new Date(Date.now() - daysAgo * 86400000).toISOString().slice(0, 10);
+function normalize(raw: RawGalleryItem): AdminGalleryItem {
+  return {
+    id: String(raw.id),
+    title: raw.title,
+    caption: raw.caption ?? "",
+    image: raw.image,
+    album: raw.album,
+    tags: raw.tags ?? "",
+    date: raw.date ?? "",
+    order: raw.order,
+    status: raw.status,
+    isVideo: !!raw.isVideo,
+    videoDuration: raw.videoDuration ?? "",
+  };
 }
 
-let galleryStore: AdminGalleryItem[] = galleryImages.map((g, i) => ({
-  id: g.id,
-  title: g.alt,
-  caption: g.alt,
-  image: `${g.id}.jpg`,
-  album: g.album,
-  tags: g.isVideo ? "video" : "",
-  date: iso(i * 4),
-  order: i + 1,
-  status: "Active" as GalleryStatus,
-}));
+function toPayload(input: Omit<AdminGalleryItem, "id"> | Partial<AdminGalleryItem>) {
+  const { image: _image, ...rest } = input;
+  return rest;
+}
 
 // --- gallery service (GET/POST/PUT/DELETE /api/admin/gallery) --------------
 export async function getGalleryItems(): Promise<AdminGalleryItem[]> {
-  await delay(450);
-  return clone(galleryStore).sort((a, b) => a.order - b.order);
+  const raw = await api.get<RawGalleryItem[]>("/admin/gallery");
+  return raw.map(normalize).sort((a, b) => a.order - b.order);
 }
 
 export async function createGalleryItem(
   input: Omit<AdminGalleryItem, "id">,
+  imageFile?: File,
 ): Promise<AdminGalleryItem> {
-  await delay(600);
-  const created: AdminGalleryItem = { ...clone(input), id: `g-${Date.now()}` };
-  galleryStore = [...galleryStore, created];
-  logActivity({
-    action: "Create",
-    module: "Gallery",
-    description: "Added a gallery image",
-    affectedData: created.title,
-  });
-  return created;
+  const payload = imageFile ? { ...toPayload(input), image: imageFile } : toPayload(input);
+  const raw = await api.post<RawGalleryItem>("/admin/gallery", payload, !!imageFile);
+  return normalize(raw);
 }
 
 export async function updateGalleryItem(
   id: string,
   input: Omit<AdminGalleryItem, "id">,
+  imageFile?: File,
 ): Promise<AdminGalleryItem> {
-  await delay(600);
-  const updated: AdminGalleryItem = { ...clone(input), id };
-  galleryStore = galleryStore.map((g) => (g.id === id ? updated : g));
-  logActivity({
-    action: "Update",
-    module: "Gallery",
-    description: "Updated a gallery image",
-    affectedData: updated.title,
-  });
-  return updated;
+  const payload = imageFile ? { ...toPayload(input), image: imageFile } : toPayload(input);
+  const raw = await api.put<RawGalleryItem>(`/admin/gallery/${id}`, payload, !!imageFile);
+  return normalize(raw);
 }
 
 export async function deleteGalleryItem(id: string): Promise<void> {
-  await delay(500);
-  const target = galleryStore.find((g) => g.id === id);
-  galleryStore = galleryStore.filter((g) => g.id !== id);
-  logActivity({
-    action: "Delete",
-    module: "Gallery",
-    description: "Deleted a gallery image",
-    affectedData: target?.title ?? id,
-  });
+  await api.delete(`/admin/gallery/${id}`);
 }
 
 export async function reorderGalleryItem(
   id: string,
   direction: "up" | "down",
 ): Promise<AdminGalleryItem[]> {
-  await delay(280);
-  const sorted = [...galleryStore].sort((a, b) => a.order - b.order);
-  const index = sorted.findIndex((g) => g.id === id);
-  const target = direction === "up" ? index - 1 : index + 1;
-  if (index < 0 || target < 0 || target >= sorted.length) return clone(sorted);
-  const a = sorted[index]!;
-  const b = sorted[target]!;
-  const swap = a.order;
-  a.order = b.order;
-  b.order = swap;
-  galleryStore = sorted;
-  return clone(sorted).sort((x, y) => x.order - y.order);
+  const raw = await api.patch<RawGalleryItem[]>(`/admin/gallery/${id}/reorder`, { direction });
+  return raw.map(normalize).sort((a, b) => a.order - b.order);
 }
 
 export function emptyGalleryItem(order: number): Omit<AdminGalleryItem, "id"> {
@@ -118,5 +100,7 @@ export function emptyGalleryItem(order: number): Omit<AdminGalleryItem, "id"> {
     date: new Date().toISOString().slice(0, 10),
     order,
     status: "Active",
+    isVideo: false,
+    videoDuration: "",
   };
 }

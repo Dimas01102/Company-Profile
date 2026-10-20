@@ -38,11 +38,12 @@ import {
   type Inquiry,
   type InquiryStatus,
 } from "@/lib/inquiry-service";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/inquiries")({
   head: () => ({
     meta: [
-      { title: "Inquiries — Konektra Admin Console" },
+      { title: "Inquiries Konektra Admin Console" },
       {
         name: "description",
         content: "Manage sales inquiries submitted from the public PT Batam Konektra Jaya website.",
@@ -151,8 +152,8 @@ function InquiriesPage() {
       setActive(updated);
       setRows((prev) => (prev ?? []).map((i) => (i.id === updated.id ? updated : i)));
       toast.success(`Status changed to ${status}.`);
-    } catch {
-      toast.error("Could not update the status.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not update the status."));
     } finally {
       setStatusBusy(false);
     }
@@ -167,8 +168,8 @@ function InquiriesPage() {
       setRows((prev) => (prev ?? []).map((i) => (i.id === updated.id ? updated : i)));
       setNoteText("");
       toast.success("Note added.");
-    } catch {
-      toast.error("Could not add the note.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not add the note."));
     } finally {
       setNoteBusy(false);
     }
@@ -183,8 +184,8 @@ function InquiriesPage() {
       if (active?.id === deleteTarget.id) setActive(null);
       toast.success("Inquiry archived.");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Could not archive the inquiry.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not archive the inquiry."));
     } finally {
       setDeleting(false);
     }
@@ -199,6 +200,53 @@ function InquiriesPage() {
       />
 
       <div className="space-y-6 p-5 lg:p-8">
+        <details className="border border-border bg-surface" open>
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-primary">
+            How inquiries work
+          </summary>
+          <div className="space-y-3 border-t border-border px-5 py-4 text-sm text-muted-foreground">
+            <p>
+              A visitor fills in the form on the{" "}
+              <a
+                href="/contact"
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-secondary hover:underline"
+              >
+                Contact page
+              </a>{" "}
+              (the "Request a Quote" buttons on product pages lead to the same form). The inquiry is
+              saved here with status <strong>New</strong> and the company email receives a
+              notification (the visitor email is set as Reply-To, so replying answers the sender
+              directly).
+            </p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>
+                <strong>New</strong>: just received, nobody has handled it.
+              </li>
+              <li>
+                <strong>Contacted</strong>: sales has replied or called the sender.
+              </li>
+              <li>
+                <strong>In Progress</strong>: quotation or discussion is ongoing.
+              </li>
+              <li>
+                <strong>Completed</strong>: deal done or question answered.{" "}
+                <strong>Cancelled</strong>: no longer relevant.
+              </li>
+            </ol>
+            <p>
+              Use <strong>Internal notes</strong> to record what was discussed. Notes are only
+              visible to admins, never to the sender.
+            </p>
+            <p>
+              Difference from WhatsApp: an inquiry is recorded with its status, the product asked
+              about, the history of notes, and who handled it, so nothing is lost and the whole team
+              sees the same list. A WhatsApp chat stays on one person's phone, has no status or
+              tracking, and cannot be searched or filtered here.
+            </p>
+          </div>
+        </details>
         <Panel padded={false}>
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <div>
@@ -256,7 +304,7 @@ function InquiriesPage() {
           {rows !== null && !loadError && filtered.length > 0 && (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[960px] text-sm">
+                <table className="w-full min-w-240 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/50 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-3">

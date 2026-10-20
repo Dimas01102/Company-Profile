@@ -12,14 +12,20 @@ function formatDate(d: string) {
 
 export function NewsCard({ article }: { article: NewsArticle }) {
   return (
-    <article className="group flex flex-col overflow-hidden border border-border bg-card transition-shadow duration-200 hover:shadow-[var(--shadow-card-hover)]">
-      <div className="aspect-[16/10] overflow-hidden bg-muted">
-        <img
-          src={article.image}
-          alt={article.title}
-          loading="lazy"
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-        />
+    <article className="group flex flex-col overflow-hidden border border-border bg-card transition-shadow duration-200 hover:shadow-(--shadow-card-hover)">
+      <div className="aspect-16/10 overflow-hidden bg-muted">
+        {article.image ? (
+          <img
+            src={article.image}
+            alt={article.title}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            No image
+          </div>
+        )}
       </div>
       <div className="flex flex-1 flex-col gap-3 p-6">
         <div className="flex items-center gap-3 text-xs">

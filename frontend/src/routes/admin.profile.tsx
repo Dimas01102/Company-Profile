@@ -1,22 +1,27 @@
+import { FileImage } from "@/components/admin/FileImage";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AlertCircle, Camera, CheckCircle2, Eye, EyeOff, Loader2, Save } from "lucide-react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { useAdminUser } from "@/components/admin/admin-context";
+import { getErrorMessage } from "@/lib/api-client";
 import { changePassword, updateProfile } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/profile")({
   head: () => ({
     meta: [
-      { title: "Admin Profile — Konektra Admin Console" },
+      { title: "Admin Profile Konektra Admin Console" },
       {
         name: "description",
         content:
           "Manage the administrator account details and password for the PT Batam Konektra Jaya website console.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Admin Profile — Konektra Admin Console" },
-      { property: "og:description", content: "Administrator account settings." },
+      { property: "og:title", content: "Admin Profile Konektra Admin Console" },
+      {
+        property: "og:description",
+        content: "Administrator account settings.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -90,12 +95,12 @@ function Notice({ kind, children }: { kind: "success" | "error"; children: React
       role={success ? "status" : "alert"}
       className={`mb-5 flex items-start gap-2.5 border-l-2 px-4 py-3 text-sm ${
         success
-          ? "border-[color:var(--success)] bg-[color:var(--success)]/8 text-foreground"
+          ? "border-success bg-(--success)/8 text-foreground"
           : "border-destructive bg-destructive/5 text-destructive"
       }`}
     >
       {success ? (
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--success)]" />
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
       ) : (
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
       )}
@@ -111,7 +116,9 @@ function AdminProfilePage() {
   const [email, setEmail] = useState(user.email);
   const [phone, setPhone] = useState(user.phone);
   const [position, setPosition] = useState(user.position);
-  const [photo, setPhoto] = useState(user.photo);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState(user.photo);
+  const [profileError, setProfileError] = useState("");
   const [profileState, setProfileState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
 
@@ -135,9 +142,18 @@ function AdminProfilePage() {
 
     setProfileState("saving");
     try {
-      await updateProfile({ name, email, phone, position, photo });
+      const updated = await updateProfile({
+        name,
+        email,
+        phone,
+        position,
+        photoFile: photoFile ?? undefined,
+      });
+      setPhotoPreview(updated.photo);
+      setPhotoFile(null);
       setProfileState("saved");
-    } catch {
+    } catch (err) {
+      setProfileError(getErrorMessage(err, "Try again."));
       setProfileState("error");
     }
   }
@@ -173,18 +189,26 @@ function AdminProfilePage() {
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <Panel title="Profile photo" description="Square image, at least 400 × 400 px.">
             <div className="flex flex-col items-center gap-4 text-center">
-              <div className="flex h-28 w-28 items-center justify-center bg-primary text-2xl font-bold text-primary-foreground">
-                {initials(name || user.name)}
+              <div className="flex h-28 w-28 items-center justify-center overflow-hidden bg-primary text-2xl font-bold text-primary-foreground">
+                {photoFile ? (
+                  <FileImage file={photoFile} className="h-full w-full object-cover" />
+                ) : photoPreview ? (
+                  <img src={photoPreview} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initials(name || user.name)
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => setPhoto(`admin-${Date.now()}.jpg`)}
-                className="btn-outline text-sm"
-              >
+              <label className="btn-outline cursor-pointer text-sm">
                 <Camera className="h-4 w-4" />
                 Change photo
-              </button>
-              {photo && <p className="text-xs text-muted-foreground">{photo}</p>}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              {photoFile && <p className="text-xs text-muted-foreground">{photoFile.name}</p>}
               <div className="w-full border-t border-border pt-4 text-left text-xs text-muted-foreground">
                 <p>
                   <span className="font-semibold text-foreground">Role:</span> Administrator
@@ -206,7 +230,7 @@ function AdminProfilePage() {
                 <Notice kind="success">Profile updated successfully.</Notice>
               )}
               {profileState === "error" && (
-                <Notice kind="error">Profile could not be saved. Try again.</Notice>
+                <Notice kind="error">Profile could not be saved. {profileError}</Notice>
               )}
               <form onSubmit={saveProfile} noValidate className="space-y-5">
                 <div className="grid gap-5 sm:grid-cols-2">

@@ -1,10 +1,4 @@
-// ----------------------------------------------------------------------------
-// MOCK COMPANY PROFILE SERVICE
-// Frontend-only in-memory store. Replace each function body with a Laravel API
-// call later — keep the signatures identical.
-// ----------------------------------------------------------------------------
-
-import { company } from "@/lib/mock-data";
+import { api } from "@/lib/api-client";
 
 export type CoreValue = {
   id: string;
@@ -25,21 +19,16 @@ export type Milestone = {
 };
 
 export type CompanyProfile = {
-  // General
   name: string;
   logoName: string;
-  faviconName: string;
   tagline: string;
   shortDescription: string;
   fullDescription: string;
-  // Story
   history: string;
   foundedYear: string;
   background: string;
-  // Vision & mission
   vision: string;
   mission: string;
-  // Business
   businessType: string;
   industry: string;
   businessScope: string;
@@ -51,234 +40,309 @@ export type CompanyProfile = {
   whatsapp: string;
   email: string;
   businessHours: string;
-  // Social
   facebook: string;
   instagram: string;
   linkedin: string;
   youtube: string;
-  otherSocial: string;
-  // Location
   mapEmbed: string;
   latitude: string;
   longitude: string;
-  // SEO
   metaTitle: string;
   metaDescription: string;
   keywords: string;
   ogImageName: string;
-  // Document
   profilePdfName: string;
   profilePdfSize: string;
   profilePdfUpdatedAt: string;
-  // Collections
   coreValues: CoreValue[];
 };
 
-const defaultProfile: CompanyProfile = {
-  name: company.name,
-  logoName: "konektra-logo-primary.svg",
-  faviconName: "favicon-konektra.png",
-  tagline: company.tagline,
-  shortDescription: company.description,
-  fullDescription:
-    "PT Batam Konektra Jaya designs, manufactures, and integrates electrical power equipment for utilities, industrial plants, and infrastructure projects across Indonesia. Our Batam facility produces distribution transformers, low- and medium-voltage switchgear, busbar trunking, and control panels, all type-tested to IEC, SPLN, and SNI standards. Alongside equipment supply we deliver turnkey substation packages including engineering design, installation supervision, commissioning, and long-term maintenance.",
-  history:
-    "Founded in 2004 as a panel assembly workshop in Batam, the company grew into a full electrical equipment manufacturer serving PLN contractors, industrial estates, and offshore operators. Investment in a dedicated transformer line in 2013 and an in-house testing laboratory in 2018 established Konektra as a trusted local alternative to imported equipment.",
-  foundedYear: String(company.founded),
-  background:
-    "Konektra was established to reduce Indonesia's dependency on imported power equipment by combining local manufacturing capability with international engineering standards.",
-  vision:
-    "To be Indonesia's most trusted partner for industrial power equipment and substation engineering.",
-  mission:
-    "Deliver reliable, standard-compliant electrical equipment; support every project with responsive engineering and after-sales service; develop local engineering talent; and operate safely and sustainably at every site.",
-  businessType: "Limited Liability Company (Perseroan Terbatas)",
-  industry: "Electrical Equipment Manufacturing & Power Engineering",
-  businessScope:
-    "Transformer manufacturing, switchgear assembly, generator packaging, substation EPC, testing and commissioning, preventive maintenance.",
-  address: "Kawasan Industri Batamindo, Lot 312",
-  city: "Batam",
-  province: "Kepulauan Riau",
-  postalCode: "29433",
-  phone: company.phone,
-  whatsapp: company.whatsapp,
-  email: company.email,
-  businessHours: company.hours,
-  facebook: "https://facebook.com/batamkonektrajaya",
-  instagram: "https://instagram.com/batamkonektrajaya",
-  linkedin: "https://linkedin.com/company/batam-konektra-jaya",
-  youtube: "https://youtube.com/@batamkonektrajaya",
-  otherSocial: "https://x.com/konektrajaya",
-  mapEmbed: company.mapEmbed,
-  latitude: "1.0451",
-  longitude: "104.0305",
-  metaTitle: "PT Batam Konektra Jaya — Industrial Engineering & Power Solutions",
-  metaDescription:
-    "Transformers, switchgear, generator sets, and turnkey substation engineering for utilities and industry across Indonesia.",
-  keywords:
-    "transformer batam, switchgear indonesia, genset industri, substation epc, panel listrik batam",
-  ogImageName: "og-konektra-facility.jpg",
-  profilePdfName: "Company-Profile-Konektra-2026.pdf",
-  profilePdfSize: "4.8 MB",
-  profilePdfUpdatedAt: "12 Jun 2026",
-  coreValues: [
-    {
-      id: "cv-1",
-      name: "Integrity",
-      description: "We keep our commitments to customers, partners, and colleagues.",
-      icon: "ShieldCheck",
-      order: 1,
-    },
-    {
-      id: "cv-2",
-      name: "Quality",
-      description: "Every unit is type-tested and documented before it leaves our facility.",
-      icon: "BadgeCheck",
-      order: 2,
-    },
-    {
-      id: "cv-3",
-      name: "Innovation",
-      description: "We continuously improve designs, tooling, and monitoring technology.",
-      icon: "Lightbulb",
-      order: 3,
-    },
-    {
-      id: "cv-4",
-      name: "Partnership",
-      description: "We work as an extension of our customers' engineering teams.",
-      icon: "Handshake",
-      order: 4,
-    },
-  ],
-};
-
-const defaultMilestones: Milestone[] = [
-  {
-    id: "m-1",
-    year: "2004",
-    title: "Company founded in Batam",
-    description: "Started as a control panel assembly workshop serving local industrial estates.",
-    image: "milestone-2004.jpg",
-    order: 1,
-    active: true,
-  },
-  {
-    id: "m-2",
-    year: "2009",
-    title: "First PLN vendor certification",
-    description: "Approved as a registered supplier for distribution equipment.",
-    image: "milestone-2009.jpg",
-    order: 2,
-    active: true,
-  },
-  {
-    id: "m-3",
-    year: "2013",
-    title: "Transformer production line",
-    description: "Opened a dedicated oil-immersed transformer line with 2,500 kVA capability.",
-    image: "milestone-2013.jpg",
-    order: 3,
-    active: true,
-  },
-  {
-    id: "m-4",
-    year: "2018",
-    title: "In-house testing laboratory",
-    description: "Commissioned a high-voltage test bay for factory acceptance testing.",
-    image: "milestone-2018.jpg",
-    order: 4,
-    active: true,
-  },
-  {
-    id: "m-5",
-    year: "2022",
-    title: "Regional export expansion",
-    description: "Began regular deliveries to Malaysia, Singapore, and Vietnam.",
-    image: "milestone-2022.jpg",
-    order: 5,
-    active: true,
-  },
-  {
-    id: "m-6",
-    year: "2026",
-    title: "Data center substation program",
-    description: "Delivered the first 20 MVA substation for a Tier-III data center.",
-    image: "milestone-2026.jpg",
-    order: 6,
-    active: false,
-  },
-];
-
-let profileStore: CompanyProfile = structuredClone(defaultProfile);
-let milestoneStore: Milestone[] = structuredClone(defaultMilestones);
-
-const delay = (ms = 550) => new Promise((r) => setTimeout(r, ms));
-
-/** TODO: GET /api/admin/company-profile */
-export async function getCompanyProfile(): Promise<CompanyProfile> {
-  await delay();
-  return structuredClone(profileStore);
+function blankProfile(): CompanyProfile {
+  return {
+    name: "",
+    logoName: "",
+    tagline: "",
+    shortDescription: "",
+    fullDescription: "",
+    history: "",
+    foundedYear: "",
+    background: "",
+    vision: "",
+    mission: "",
+    businessType: "",
+    industry: "",
+    businessScope: "",
+    address: "",
+    city: "",
+    province: "",
+    postalCode: "",
+    phone: "",
+    whatsapp: "",
+    email: "",
+    businessHours: "",
+    facebook: "",
+    instagram: "",
+    linkedin: "",
+    youtube: "",
+    mapEmbed: "",
+    latitude: "",
+    longitude: "",
+    metaTitle: "",
+    metaDescription: "",
+    keywords: "",
+    ogImageName: "",
+    profilePdfName: "",
+    profilePdfSize: "",
+    profilePdfUpdatedAt: "",
+    coreValues: [],
+  };
 }
 
-/** TODO: PUT /api/admin/company-profile */
+type RawCoreValue = {
+  id: number;
+  name: string;
+  description: string | null;
+  icon: string;
+  order: number;
+};
+type RawProfile = {
+  name: string;
+  logo: string | null;
+  tagline: string | null;
+  shortDescription: string | null;
+  fullDescription: string | null;
+  history: string | null;
+  foundedYear: string | null;
+  background: string | null;
+  vision: string | null;
+  mission: string | null;
+  businessType: string | null;
+  industry: string | null;
+  businessScope: string | null;
+  address: string | null;
+  city: string | null;
+  province: string | null;
+  postalCode: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  businessHours: string | null;
+  facebook: string | null;
+  instagram: string | null;
+  linkedin: string | null;
+  youtube: string | null;
+  mapEmbed: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  keywords: string | null;
+  ogImage: string | null;
+  profilePdf: string | null;
+  profilePdfSize: string | null;
+  profilePdfUpdatedAt: string | null;
+  coreValues?: RawCoreValue[];
+};
+
+function normalize(raw: RawProfile): CompanyProfile {
+  return {
+    name: raw.name,
+    logoName: raw.logo ?? "",
+    tagline: raw.tagline ?? "",
+    shortDescription: raw.shortDescription ?? "",
+    fullDescription: raw.fullDescription ?? "",
+    history: raw.history ?? "",
+    foundedYear: raw.foundedYear ?? "",
+    background: raw.background ?? "",
+    vision: raw.vision ?? "",
+    mission: raw.mission ?? "",
+    businessType: raw.businessType ?? "",
+    industry: raw.industry ?? "",
+    businessScope: raw.businessScope ?? "",
+    address: raw.address ?? "",
+    city: raw.city ?? "",
+    province: raw.province ?? "",
+    postalCode: raw.postalCode ?? "",
+    phone: raw.phone ?? "",
+    whatsapp: raw.whatsapp ?? "",
+    email: raw.email ?? "",
+    businessHours: raw.businessHours ?? "",
+    facebook: raw.facebook ?? "",
+    instagram: raw.instagram ?? "",
+    linkedin: raw.linkedin ?? "",
+    youtube: raw.youtube ?? "",
+    mapEmbed: raw.mapEmbed ?? "",
+    latitude: raw.latitude ?? "",
+    longitude: raw.longitude ?? "",
+    metaTitle: raw.metaTitle ?? "",
+    metaDescription: raw.metaDescription ?? "",
+    keywords: raw.keywords ?? "",
+    ogImageName: raw.ogImage ?? "",
+    profilePdfName: raw.profilePdf ?? "",
+    profilePdfSize: raw.profilePdfSize ?? "",
+    profilePdfUpdatedAt: raw.profilePdfUpdatedAt ?? "",
+    coreValues: (raw.coreValues ?? []).map((c) => ({
+      id: String(c.id),
+      name: c.name,
+      description: c.description ?? "",
+      icon: c.icon,
+      order: c.order,
+    })),
+  };
+}
+
+export async function getCompanyProfile(): Promise<CompanyProfile> {
+  const raw = await api.get<RawProfile>("/admin/company-profile");
+  return normalize(raw);
+}
+
+export type CompanyProfileFiles = {
+  logoFile?: File;
+  ogImageFile?: File;
+  profilePdfFile?: File;
+};
+
 export async function updateCompanyProfile(
   patch: Partial<CompanyProfile>,
+  files?: CompanyProfileFiles,
 ): Promise<CompanyProfile> {
-  await delay(700);
-  profileStore = { ...profileStore, ...structuredClone(patch) };
-  return structuredClone(profileStore);
+  const p = { ...blankProfile(), ...patch };
+  const body: Record<string, unknown> = {
+    name: p.name,
+    tagline: p.tagline,
+    shortDescription: p.shortDescription,
+    fullDescription: p.fullDescription,
+    history: p.history,
+    foundedYear: p.foundedYear,
+    background: p.background,
+    vision: p.vision,
+    mission: p.mission,
+    businessType: p.businessType,
+    industry: p.industry,
+    businessScope: p.businessScope,
+    address: p.address,
+    city: p.city,
+    province: p.province,
+    postalCode: p.postalCode,
+    phone: p.phone,
+    whatsapp: p.whatsapp,
+    email: p.email,
+    businessHours: p.businessHours,
+    facebook: p.facebook,
+    instagram: p.instagram,
+    linkedin: p.linkedin,
+    youtube: p.youtube,
+    mapEmbed: p.mapEmbed,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    metaTitle: p.metaTitle,
+    metaDescription: p.metaDescription,
+    keywords: p.keywords,
+    coreValues: p.coreValues.map((c, i) => ({
+      name: c.name,
+      description: c.description,
+      icon: c.icon,
+      order: c.order ?? i,
+    })),
+  };
+
+  const hasFiles = !!(files?.logoFile || files?.ogImageFile || files?.profilePdfFile);
+  if (files?.logoFile) body.logo = files.logoFile;
+  if (files?.ogImageFile) body.ogImage = files.ogImageFile;
+  if (files?.profilePdfFile) body.profilePdf = files.profilePdfFile;
+
+  // A cleared file name with no replacement upload means "Remove" was pressed
+  // in the form, tell the server to delete the stored file.
+  if (!files?.logoFile && !p.logoName) body.removeLogo = true;
+  if (!files?.ogImageFile && !p.ogImageName) body.removeOgImage = true;
+  if (!files?.profilePdfFile && !p.profilePdfName) body.removeProfilePdf = true;
+
+  const raw = await api.put<RawProfile>("/admin/company-profile", body, hasFiles);
+  return normalize(raw);
+}
+
+export type ResolvedMap = { latitude: string; longitude: string; embedUrl: string };
+
+/** Ask the server to expand a Google Maps link (short links need this). */
+export async function resolveMapLink(url: string): Promise<ResolvedMap> {
+  return api.post<ResolvedMap>("/admin/company-profile/resolve-map", { url });
 }
 
 export function getDefaultCompanyProfile(): CompanyProfile {
-  return structuredClone(defaultProfile);
+  return blankProfile();
 }
 
-/** TODO: GET /api/admin/milestones */
+// --- milestones --------------------------------------------------------
+type RawMilestone = {
+  id: number;
+  year: string;
+  title: string;
+  description: string | null;
+  image: string | null;
+  order: number;
+  active: boolean;
+};
+
+function normalizeMilestone(raw: RawMilestone): Milestone {
+  return {
+    id: String(raw.id),
+    year: raw.year,
+    title: raw.title,
+    description: raw.description ?? "",
+    image: raw.image ?? "",
+    order: raw.order,
+    active: raw.active,
+  };
+}
+
 export async function getMilestones(): Promise<Milestone[]> {
-  await delay(400);
-  return structuredClone(milestoneStore).sort((a, b) => a.order - b.order);
+  const raw = await api.get<RawMilestone[]>("/admin/milestones");
+  return raw.map(normalizeMilestone).sort((a, b) => a.order - b.order);
 }
 
-/** TODO: POST /api/admin/milestones */
-export async function createMilestone(input: Omit<Milestone, "id">): Promise<Milestone> {
-  await delay(500);
-  const created: Milestone = { ...input, id: `m-${Date.now()}` };
-  milestoneStore = [...milestoneStore, created];
-  return structuredClone(created);
+// `image` holds a URL (or a just-picked file name) on the client, the API only
+// accepts a real uploaded file for it, so it is never sent as text. A new
+// image goes up as `imageFile`.
+function milestonePayload(input: Omit<Milestone, "id"> | Partial<Milestone>) {
+  const { image: _image, ...rest } = input;
+  return rest;
 }
 
-/** TODO: PUT /api/admin/milestones/:id */
-export async function updateMilestone(id: string, patch: Partial<Milestone>): Promise<Milestone> {
-  await delay(500);
-  milestoneStore = milestoneStore.map((m) => (m.id === id ? { ...m, ...patch } : m));
-  const updated = milestoneStore.find((m) => m.id === id);
-  if (!updated) throw new Error("Milestone not found");
-  return structuredClone(updated);
+export async function createMilestone(
+  input: Omit<Milestone, "id">,
+  imageFile?: File,
+): Promise<Milestone> {
+  const payload = imageFile
+    ? { ...milestonePayload(input), image: imageFile }
+    : milestonePayload(input);
+  const raw = await api.post<RawMilestone>("/admin/milestones", payload, !!imageFile);
+  return normalizeMilestone(raw);
 }
 
-/** TODO: DELETE /api/admin/milestones/:id */
+/**
+ * The API validates the whole milestone on every update (year and title are
+ * required), so callers must pass the complete milestone, not a partial one,
+ * e.g. toggling `active` sends `{ ...milestone, active: !milestone.active }`.
+ */
+export async function updateMilestone(
+  id: string,
+  milestone: Omit<Milestone, "id">,
+  imageFile?: File,
+): Promise<Milestone> {
+  // An emptied image field without a new upload means "Remove" was pressed.
+  const payload = imageFile
+    ? { ...milestonePayload(milestone), image: imageFile }
+    : { ...milestonePayload(milestone), ...(milestone.image ? {} : { removeImage: true }) };
+  const raw = await api.put<RawMilestone>(`/admin/milestones/${id}`, payload, !!imageFile);
+  return normalizeMilestone(raw);
+}
+
 export async function deleteMilestone(id: string): Promise<{ ok: true }> {
-  await delay(400);
-  milestoneStore = milestoneStore.filter((m) => m.id !== id);
+  await api.delete(`/admin/milestones/${id}`);
   return { ok: true };
 }
 
-/** TODO: PATCH /api/admin/milestones/reorder */
 export async function reorderMilestone(id: string, direction: "up" | "down"): Promise<Milestone[]> {
-  await delay(250);
-  const sorted = [...milestoneStore].sort((a, b) => a.order - b.order);
-  const index = sorted.findIndex((m) => m.id === id);
-  const swapWith = direction === "up" ? index - 1 : index + 1;
-  if (index < 0 || swapWith < 0 || swapWith >= sorted.length) return getMilestonesSync();
-  const a = sorted[index]!;
-  const b = sorted[swapWith]!;
-  const tmp = a.order;
-  a.order = b.order;
-  b.order = tmp;
-  milestoneStore = sorted;
-  return getMilestonesSync();
-}
-
-function getMilestonesSync(): Milestone[] {
-  return structuredClone(milestoneStore).sort((a, b) => a.order - b.order);
+  const raw = await api.patch<RawMilestone[]>(`/admin/milestones/${id}/reorder`, { direction });
+  return raw.map(normalizeMilestone).sort((a, b) => a.order - b.order);
 }

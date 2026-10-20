@@ -16,14 +16,17 @@ import { company } from "@/lib/mock-data";
 export const Route = createFileRoute("/admin_/login")({
   head: () => ({
     meta: [
-      { title: "Administrator Sign In — PT Batam Konektra Jaya" },
+      { title: "Administrator Sign In PT Batam Konektra Jaya" },
       {
         name: "description",
         content:
           "Secure sign-in for PT Batam Konektra Jaya website administrators managing products, news, gallery, and inquiries.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Administrator Sign In — PT Batam Konektra Jaya" },
+      {
+        property: "og:title",
+        content: "Administrator Sign In PT Batam Konektra Jaya",
+      },
       {
         property: "og:description",
         content: "Internal administrator access for PT Batam Konektra Jaya.",
@@ -133,7 +136,7 @@ function AdminLoginPage() {
             </div>
           </div>
 
-          <div className="border border-border bg-surface p-7 shadow-[var(--shadow-card)] md:p-9">
+          <div className="border border-border bg-surface p-7 shadow-(--shadow-card) md:p-9">
             <p className="eyebrow">Sign in</p>
             <h1 className="mt-2 text-2xl font-bold text-primary">Welcome back</h1>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -153,9 +156,9 @@ function AdminLoginPage() {
             {status === "success" && (
               <div
                 role="status"
-                className="mt-6 flex items-start gap-2.5 border-l-2 border-[color:var(--success)] bg-[color:var(--success)]/8 px-4 py-3 text-sm text-foreground"
+                className="mt-6 flex items-start gap-2.5 border-l-2 border-success bg-(--success)/8 px-4 py-3 text-sm text-foreground"
               >
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--success)]" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
                 <span>Signed in successfully. Opening the dashboard…</span>
               </div>
             )}
@@ -227,7 +230,7 @@ function AdminLoginPage() {
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
-                  className="h-4 w-4 accent-[color:var(--secondary)]"
+                  className="h-4 w-4 accent-secondary"
                 />
                 Remember me on this device
               </label>

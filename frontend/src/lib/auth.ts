@@ -1,10 +1,5 @@
-// ----------------------------------------------------------------------------
-// MOCK AUTHENTICATION SERVICE
-// Frontend-only. Replace the internals of login/logout/getCurrentUser with real
-// Laravel API calls later — the exported signatures must stay the same.
-// ----------------------------------------------------------------------------
-
 import { useEffect, useState } from "react";
+import { api, ApiError, getAuthToken, setAuthToken } from "@/lib/api-client";
 
 export type AdminUser = {
   id: string;
@@ -18,21 +13,28 @@ export type AdminUser = {
 
 export type LoginResult = { ok: true; user: AdminUser } | { ok: false; error: string };
 
-const STORAGE_KEY = "konektra.admin.session";
-
-// Demo credentials — replaced by Laravel auth later.
-const DEMO_EMAIL = "admin@batamkonektra.co.id";
-const DEMO_PASSWORD = "admin123";
-
-const demoAdmin: AdminUser = {
-  id: "u-001",
-  name: "Dewi Kartika, S.T.",
-  email: DEMO_EMAIL,
-  phone: "+62 811 7000 220",
-  position: "Website Administrator",
-  photo: "",
-  role: "admin",
+type RawAdmin = {
+  id: number | string;
+  name: string;
+  email: string;
+  phone: string | null;
+  position: string | null;
+  photo: string | null;
 };
+
+const SESSION_KEY = "konektra.admin.session";
+
+function normalize(raw: RawAdmin): AdminUser {
+  return {
+    id: String(raw.id),
+    name: raw.name,
+    email: raw.email,
+    phone: raw.phone ?? "",
+    position: raw.position ?? "",
+    photo: raw.photo ?? "",
+    role: "admin",
+  };
+}
 
 const listeners = new Set<() => void>();
 function emit() {
@@ -42,7 +44,7 @@ function emit() {
 function readSession(): AdminUser | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(SESSION_KEY);
     return raw ? (JSON.parse(raw) as AdminUser) : null;
   } catch {
     return null;
@@ -51,72 +53,145 @@ function readSession(): AdminUser | null {
 
 function writeSession(user: AdminUser | null) {
   if (typeof window === "undefined") return;
-  if (user) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-  else window.localStorage.removeItem(STORAGE_KEY);
+  if (user) window.localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  else window.localStorage.removeItem(SESSION_KEY);
   emit();
 }
 
-/** TODO: replace with POST /api/admin/login */
+function errorMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) return e.firstError() ?? e.message;
+  return fallback;
+}
+
 export async function login(email: string, password: string): Promise<LoginResult> {
-  await new Promise((r) => setTimeout(r, 900));
-  const normalized = email.trim().toLowerCase();
-  if (normalized !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
-    return { ok: false, error: "Incorrect email or password. Please try again." };
+  try {
+    const data = await api.post<{ token: string; admin: RawAdmin }>("/admin/login", {
+      email,
+      password,
+    });
+    setAuthToken(data.token);
+    const user = normalize(data.admin);
+    writeSession(user);
+    return { ok: true, user };
+  } catch (e) {
+    return {
+      ok: false,
+      error: errorMessage(e, "Could not reach the server. Please try again."),
+    };
   }
-  writeSession(demoAdmin);
-  return { ok: true, user: demoAdmin };
 }
 
-/** TODO: replace with POST /api/admin/logout */
 export async function logout(): Promise<void> {
-  writeSession(null);
+  try {
+    await api.post("/admin/logout");
+  } catch {
+    // Clear the local session regardless, an admin shouldn't stay "stuck"
+    // logged in against a dead or already-expired token.
+  } finally {
+    setAuthToken(null);
+    writeSession(null);
+  }
 }
 
-/** TODO: replace with GET /api/admin/me */
 export function getCurrentUser(): AdminUser | null {
   return readSession();
 }
 
 export function isAuthenticated(): boolean {
-  return readSession() !== null;
+  return readSession() !== null && getAuthToken() !== null;
 }
 
-/** TODO: replace with PATCH /api/admin/me */
-export async function updateProfile(patch: Partial<AdminUser>): Promise<AdminUser> {
-  await new Promise((r) => setTimeout(r, 700));
-  const current = readSession() ?? demoAdmin;
-  const next = { ...current, ...patch };
-  writeSession(next);
-  return next;
+/** Re-validates the cached session against the server. Call once on app load. */
+export async function refreshSession(): Promise<AdminUser | null> {
+  if (!getAuthToken()) {
+    writeSession(null);
+    return null;
+  }
+  try {
+    const admin = await api.get<RawAdmin>("/admin/me");
+    const user = normalize(admin);
+    writeSession(user);
+    return user;
+  } catch {
+    setAuthToken(null);
+    writeSession(null);
+    return null;
+  }
 }
 
-/** TODO: replace with PUT /api/admin/password */
+export async function updateProfile(
+  patch: Partial<Pick<AdminUser, "name" | "email" | "phone" | "position">> & {
+    photoFile?: File;
+  },
+): Promise<AdminUser> {
+  const current = readSession();
+  const { photoFile, ...rest } = patch;
+  const payload = {
+    name: current?.name ?? "",
+    email: current?.email ?? "",
+    phone: current?.phone ?? "",
+    position: current?.position ?? "",
+    ...rest,
+    ...(photoFile ? { photo: photoFile } : {}),
+  };
+
+  const admin = await api.put<RawAdmin>("/admin/profile", payload, !!photoFile);
+  const user = normalize(admin);
+  writeSession(user);
+  return user;
+}
+
 export async function changePassword(
   currentPassword: string,
-  _newPassword: string,
+  newPassword: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await new Promise((r) => setTimeout(r, 700));
-  if (currentPassword !== DEMO_PASSWORD) {
-    return { ok: false, error: "Current password is incorrect." };
+  try {
+    await api.put("/admin/password", {
+      currentPassword,
+      password: newPassword,
+      passwordConfirmation: newPassword,
+    });
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: errorMessage(e, "Password could not be updated."),
+    };
   }
-  return { ok: true };
 }
 
-export const demoCredentials = { email: DEMO_EMAIL, password: DEMO_PASSWORD };
+// Matches AdminSeeder, shown as a hint on the login screen.
+export const demoCredentials = {
+  email: "admin@batamkonektrajaya.co.id",
+  password: "Konektra#2026",
+};
 
 /** Hydration-safe auth state for components. */
 export function useAdminAuth() {
-  const [state, setState] = useState<{ ready: boolean; user: AdminUser | null }>({
+  const [state, setState] = useState<{
+    ready: boolean;
+    user: AdminUser | null;
+  }>({
     ready: false,
     user: null,
   });
 
   useEffect(() => {
-    const sync = () => setState({ ready: true, user: readSession() });
-    sync();
+    let alive = true;
+    const sync = () => setState((s) => ({ ready: s.ready, user: readSession() }));
     listeners.add(sync);
     window.addEventListener("storage", sync);
+
+    // Show the cached user immediately (no flash of "logged out"), then
+    // confirm against the server in the background, a revoked/expired
+    // token won't silently look authenticated.
+    setState({ ready: false, user: readSession() });
+    refreshSession().then((user) => {
+      if (alive) setState({ ready: true, user });
+    });
+
     return () => {
+      alive = false;
       listeners.delete(sync);
       window.removeEventListener("storage", sync);
     };

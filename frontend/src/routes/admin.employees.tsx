@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { WebsiteLocation } from "@/components/admin/WebsiteLocation";
 import { useAdminUser } from "@/components/admin/admin-context";
 import {
   Panel,
@@ -48,19 +49,23 @@ import {
   departments,
   type Employee,
 } from "@/lib/employee-service";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/employees")({
   head: () => ({
     meta: [
-      { title: "Employees — Konektra Admin Console" },
+      { title: "Employees | Konektra Admin Console" },
       {
         name: "description",
         content:
           "Manage the management team and personnel profiles published on the PT Batam Konektra Jaya website.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Employees — Konektra Admin Console" },
-      { property: "og:description", content: "Public personnel profile management." },
+      { property: "og:title", content: "Employees | Konektra Admin Console" },
+      {
+        property: "og:description",
+        content: "Public personnel profile management.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -104,7 +109,7 @@ function Avatar({
       style={{ width: size, height: size }}
       className="flex shrink-0 items-center justify-center bg-primary text-xs font-bold text-primary-foreground"
     >
-      {initials(employee.name) || "—"}
+      {initials(employee.name) || "-"}
     </span>
   );
 }
@@ -124,6 +129,12 @@ function EmployeesPage() {
   const [perPage, setPerPage] = useState(5);
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  // The two list fields are edited as raw text. Splitting on every keystroke
+  // would delete the new empty line, so pressing Enter would do nothing.
+  const [responsibilitiesText, setResponsibilitiesText] = useState("");
+  const [experienceText, setExperienceText] = useState("");
+  const [photoPreview, setPhotoPreview] = useState("");
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState<Employee | Draft | null>(null);
@@ -139,6 +150,17 @@ function EmployeesPage() {
   }
 
   useEffect(load, []);
+
+  // Preview URL for a photo that was just picked (revoked when replaced).
+  useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreview("");
+      return;
+    }
+    const url = URL.createObjectURL(photoFile);
+    setPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photoFile]);
 
   const positions = useMemo(
     () => ["All positions", ...Array.from(new Set((rows ?? []).map((r) => r.position)))],
@@ -181,11 +203,17 @@ function EmployeesPage() {
 
   function openCreate() {
     setFormErrors({});
+    setPhotoFile(null);
+    setResponsibilitiesText("");
+    setExperienceText("");
     setDraft(emptyEmployee((rows?.length ?? 0) + 1));
   }
 
   function openEdit(e: Employee) {
     setFormErrors({});
+    setPhotoFile(null);
+    setResponsibilitiesText(e.responsibilities.join("\n"));
+    setExperienceText(e.experience.join("\n"));
     setDraft({ ...e });
   }
 
@@ -193,6 +221,12 @@ function EmployeesPage() {
     const e: Record<string, string> = {};
     if (!d.name.trim()) e.name = "Full name is required.";
     if (!d.employeeId.trim()) e.employeeId = "Employee ID is required.";
+    else if (
+      (rows ?? []).some(
+        (r) => r.employeeId.toLowerCase() === d.employeeId.trim().toLowerCase() && r.id !== d.id,
+      )
+    )
+      e.employeeId = "This employee ID is already used.";
     if (!d.position.trim()) e.position = "Position is required.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) e.email = "Enter a valid email address.";
     if (!d.phone.trim()) e.phone = "Phone number is required.";
@@ -211,22 +245,34 @@ function EmployeesPage() {
       return;
     }
     setSaving(true);
+    const toList = (text: string) =>
+      text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+    const content = {
+      ...draft,
+      responsibilities: toList(responsibilitiesText),
+      experience: toList(experienceText),
+    };
     try {
-      if (draft.id) {
-        const { id, ...patch } = draft;
-        await updateEmployee(id, patch);
+      let saved: Employee;
+      if (content.id) {
+        const { id, ...patch } = content;
+        saved = await updateEmployee(id, patch, photoFile ?? undefined);
         toast.success("Employee updated successfully.");
       } else {
-        const { id: _ignored, ...input } = draft;
-        await createEmployee(input);
+        const { id: _ignored, ...input } = content;
+        saved = await createEmployee(input, photoFile ?? undefined);
         toast.success("Employee created successfully.");
       }
-      const snapshot = draft;
       setDraft(null);
+      setPhotoFile(null);
       load();
-      if (thenPreview) setPreview(snapshot);
-    } catch {
-      toast.error("Employee could not be saved. Please try again.");
+      // Preview the saved record (it carries the real photo URL).
+      if (thenPreview) setPreview(saved);
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Employee could not be saved. Please try again."));
     } finally {
       setSaving(false);
     }
@@ -240,8 +286,8 @@ function EmployeesPage() {
       toast.success("Employee deleted successfully.");
       setDeleteTarget(null);
       load();
-    } catch {
-      toast.error("Employee could not be deleted.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Employee could not be deleted."));
     } finally {
       setDeleting(false);
     }
@@ -260,6 +306,10 @@ function EmployeesPage() {
         title="Employees"
         subtitle="Management and personnel profiles on the public website"
       />
+
+      <div className="px-4 pt-6 md:px-6 md:pt-8">
+        <WebsiteLocation feature="employees" />
+      </div>
 
       <div className="px-4 py-6 md:px-6 md:py-8">
         <div className="mb-5 flex flex-col gap-3 border border-border bg-surface px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -357,7 +407,7 @@ function EmployeesPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-sm">
+                <table className="w-full min-w-225 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/60 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-2.5 font-semibold">Photo</th>
@@ -520,21 +570,43 @@ function EmployeesPage() {
           {draft && (
             <div className="space-y-5">
               <div className="flex items-center gap-4 border border-dashed border-border bg-muted/40 p-4">
-                <Avatar employee={draft} size={56} />
+                <Avatar employee={{ ...draft, photo: photoPreview || draft.photo }} size={56} />
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-foreground">Profile photo</p>
                   <p className="text-xs text-muted-foreground">
-                    Square JPG or PNG, at least 600 × 600 px.
+                    {photoFile?.name || "Square JPG or PNG, at least 600 × 600 px."}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setDraft({ ...draft, photo: "" })}
-                  className="border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary hover:bg-muted"
-                >
+                {(draft.photo || photoFile) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoFile(null);
+                      setDraft({ ...draft, photo: "" });
+                    }}
+                    className="border border-border bg-surface px-3 py-2 text-xs font-semibold text-destructive hover:bg-muted"
+                  >
+                    Remove photo
+                  </button>
+                )}
+                <label className="cursor-pointer border border-border bg-surface px-3 py-2 text-xs font-semibold text-primary hover:bg-muted">
                   <Upload className="mr-1.5 inline h-3.5 w-3.5" />
                   Choose file
-                </button>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setPhotoFile(file);
+                        setDraft({ ...draft, photo: file.name });
+                      }
+                      // Allow picking the same file again after removing it.
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
               </div>
 
               <div className="grid gap-5 sm:grid-cols-2">
@@ -594,17 +666,15 @@ function EmployeesPage() {
               />
               <TextAreaField
                 label="Responsibilities"
-                value={draft.responsibilities.join("\n")}
-                onChange={(v) =>
-                  setDraft({ ...draft, responsibilities: v.split("\n").filter(Boolean) })
-                }
+                value={responsibilitiesText}
+                onChange={setResponsibilitiesText}
                 rows={4}
                 hint="One responsibility per line."
               />
               <TextAreaField
                 label="Career experience"
-                value={draft.experience.join("\n")}
-                onChange={(v) => setDraft({ ...draft, experience: v.split("\n").filter(Boolean) })}
+                value={experienceText}
+                onChange={setExperienceText}
                 rows={4}
                 hint="One entry per line."
               />
@@ -716,13 +786,18 @@ function EmployeesPage() {
               )}
 
               <div className="grid gap-2 border-t border-border pt-4 text-sm text-muted-foreground sm:grid-cols-2">
+                <p className="text-xs italic sm:col-span-2">
+                  Shown on the website: Home (first 4 active employees) and About (all active
+                  employees), ordered by Display order. Email and phone below are internal only and
+                  are not shown to visitors.
+                </p>
                 <span className="inline-flex items-center gap-2">
                   <Mail className="h-4 w-4 text-secondary" />
-                  {preview.email}
+                  {preview.email} (internal)
                 </span>
                 <span className="inline-flex items-center gap-2">
                   <Phone className="h-4 w-4 text-secondary" />
-                  {preview.phone}
+                  {preview.phone} (internal)
                 </span>
                 {preview.linkedin && (
                   <a

@@ -23,7 +23,9 @@ export function ProductPreview({
   product,
   related,
 }: {
-  product: Omit<AdminProduct, "id"> & { id?: string };
+  product: Omit<AdminProduct, "id" | "createdAt" | "updatedAt"> & {
+    id?: string;
+  };
   related: AdminProduct[];
 }) {
   const gallery = [product.mainImage, ...product.gallery].filter(Boolean);
@@ -79,7 +81,7 @@ export function ProductPreview({
             <AvailabilityBadge value={availability} />
             {product.status !== "Published" && (
               <span className="bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {product.status} — not visible publicly
+                {product.status} - not visible publicly
               </span>
             )}
           </div>
@@ -97,17 +99,17 @@ export function ProductPreview({
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wider text-muted-foreground">Model</dt>
-              <dd className="mt-1 font-medium text-foreground">{product.model || "—"}</dd>
+              <dd className="mt-1 font-medium text-foreground">{product.model || "-"}</dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wider text-muted-foreground">SKU</dt>
-              <dd className="mt-1 font-medium text-foreground">{product.sku || "—"}</dd>
+              <dd className="mt-1 font-medium text-foreground">{product.sku || "-"}</dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-wider text-muted-foreground">
                 Product code
               </dt>
-              <dd className="mt-1 font-medium text-foreground">{product.productCode || "—"}</dd>
+              <dd className="mt-1 font-medium text-foreground">{product.productCode || "-"}</dd>
             </div>
           </dl>
 
@@ -127,14 +129,14 @@ export function ProductPreview({
           <div className="mt-7 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => toast.info("This is a preview — actions are disabled here.")}
+              onClick={() => toast.info("This is a preview - actions are disabled here.")}
               className="btn-primary text-sm"
             >
               <MessageSquare className="h-4 w-4" /> Request inquiry
             </button>
             <button
               type="button"
-              onClick={() => toast.info("This is a preview — actions are disabled here.")}
+              onClick={() => toast.info("This is a preview - actions are disabled here.")}
               className="btn-outline text-sm"
             >
               <Mail className="h-4 w-4" /> Contact sales
@@ -240,7 +242,7 @@ export function ProductPreview({
                 </div>
                 <button
                   type="button"
-                  onClick={() => toast.info("This is a preview — downloads are disabled here.")}
+                  onClick={() => toast.info("This is a preview - downloads are disabled here.")}
                   className="btn-outline h-9 px-3 text-sm"
                 >
                   <Download className="h-4 w-4" /> Download

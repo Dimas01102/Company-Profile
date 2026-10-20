@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { WebsiteLocation } from "@/components/admin/WebsiteLocation";
+import { FileImage } from "@/components/admin/FileImage";
 import { useAdminUser } from "@/components/admin/admin-context";
 import {
   Panel,
@@ -49,11 +51,12 @@ import {
   emptyBanner,
   type Banner,
 } from "@/lib/banner-service";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/banners")({
   head: () => ({
     meta: [
-      { title: "Banners — Konektra Admin Console" },
+      { title: "Banners Konektra Admin Console" },
       {
         name: "description",
         content: "Manage homepage hero banners for the PT Batam Konektra Jaya website.",
@@ -74,6 +77,7 @@ function BannersPage() {
   const [statusFilter, setStatusFilter] = useState("All statuses");
 
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Banner | null>(null);
@@ -102,11 +106,13 @@ function BannersPage() {
   function openCreate() {
     const nextOrder = (rows ?? []).reduce((m, b) => Math.max(m, b.order), 0) + 1;
     setErrors({});
+    setImageFile(null);
     setDraft(emptyBanner(nextOrder));
   }
 
   function openEdit(banner: Banner) {
     setErrors({});
+    setImageFile(null);
     setDraft({ ...banner });
   }
 
@@ -133,17 +139,17 @@ function BannersPage() {
     const { id, ...payload } = draft;
     try {
       if (id) {
-        const updated = await updateBanner(id, payload);
+        const updated = await updateBanner(id, payload, imageFile ?? undefined);
         setRows((prev) => (prev ?? []).map((b) => (b.id === id ? updated : b)));
         toast.success("Banner updated.");
       } else {
-        const created = await createBanner(payload);
+        const created = await createBanner(payload, imageFile ?? undefined);
         setRows((prev) => [...(prev ?? []), created]);
         toast.success("Banner created.");
       }
       setDraft(null);
-    } catch {
-      toast.error("Could not save the banner.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save the banner."));
     } finally {
       setSaving(false);
     }
@@ -157,8 +163,8 @@ function BannersPage() {
       setRows((prev) => (prev ?? []).filter((b) => b.id !== deleteTarget.id));
       toast.success("Banner deleted.");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Could not delete the banner.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not delete the banner."));
     } finally {
       setDeleting(false);
     }
@@ -174,8 +180,8 @@ function BannersPage() {
       });
       setRows((prev) => (prev ?? []).map((b) => (b.id === id ? updated : b)));
       toast.success(`Banner ${updated.status === "Active" ? "enabled" : "disabled"}.`);
-    } catch {
-      toast.error("Could not change the banner status.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not change the banner status."));
     } finally {
       setBusyId(null);
     }
@@ -186,8 +192,8 @@ function BannersPage() {
     try {
       const next = await reorderBanner(banner.id, direction);
       setRows(next);
-    } catch {
-      toast.error("Could not reorder the banners.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not reorder the banners."));
     } finally {
       setBusyId(null);
     }
@@ -202,6 +208,7 @@ function BannersPage() {
       />
 
       <div className="space-y-6 p-5 lg:p-8">
+        <WebsiteLocation feature="banners" />
         <Panel padded={false}>
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <div>
@@ -260,7 +267,7 @@ function BannersPage() {
 
           {rows !== null && !loadError && filtered.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-sm">
+              <table className="w-full min-w-220 text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/50 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                     <th className="px-5 py-3">Banner</th>
@@ -279,10 +286,17 @@ function BannersPage() {
                   {filtered.map((b) => (
                     <tr key={b.id} className="align-middle hover:bg-muted/40">
                       <td className="px-5 py-3">
-                        <span className="block font-medium text-foreground">{b.title}</span>
-                        <span className="mt-0.5 block max-w-xs truncate text-xs text-muted-foreground">
-                          {b.subtitle}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          {b.image && (
+                            <img src={b.image} alt="" className="h-10 w-16 shrink-0 object-cover" />
+                          )}
+                          <div>
+                            <span className="block font-medium text-foreground">{b.title}</span>
+                            <span className="mt-0.5 block max-w-xs truncate text-xs text-muted-foreground">
+                              {b.subtitle}
+                            </span>
+                          </div>
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-5 py-3 text-muted-foreground">
                         <span className="inline-flex items-center gap-1">
@@ -290,7 +304,7 @@ function BannersPage() {
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-5 py-3 text-xs text-muted-foreground">
-                        {b.startDate || "—"} → {b.endDate || "No end date"}
+                        {b.startDate || ""} → {b.endDate || "No end date"}
                       </td>
                       <td className="px-5 py-3">
                         <StatusPill status={b.status} />
@@ -369,28 +383,47 @@ function BannersPage() {
               <div className="border border-dashed border-border bg-muted/40 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="flex h-12 w-12 items-center justify-center bg-primary/10 text-xs font-semibold text-primary">
-                      <ImageIcon className="h-5 w-5" />
-                    </span>
+                    <div className="flex h-12 w-12 items-center justify-center overflow-hidden bg-primary/10">
+                      {imageFile ? (
+                        <FileImage file={imageFile} className="h-full w-full object-cover" />
+                      ) : draft.image ? (
+                        <img src={draft.image} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <ImageIcon className="h-5 w-5 text-primary" />
+                      )}
+                    </div>
                     <div>
                       <p className="text-sm font-semibold text-foreground">Banner image</p>
                       <p className="text-xs text-muted-foreground">
-                        {draft.image || "JPG or PNG, at least 1920 × 800 px."}
+                        {imageFile?.name || draft.image || "JPG or PNG, at least 1920 × 800 px."}
                       </p>
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDraft({ ...draft, image: `banner-${Date.now()}.jpg` })}
-                      className="btn-outline h-9 px-3 text-sm"
-                    >
-                      <Upload className="h-4 w-4" /> Choose file
-                    </button>
-                    {draft.image && (
+                    <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                      <Upload className="h-4 w-4" />
+                      {draft.image ? "Replace" : "Choose file"}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setImageFile(file);
+                            setDraft({ ...draft, image: file.name });
+                          }
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {(imageFile || draft.image) && (
                       <button
                         type="button"
-                        onClick={() => setDraft({ ...draft, image: "" })}
+                        onClick={() => {
+                          setImageFile(null);
+                          setDraft({ ...draft, image: "" });
+                        }}
                         className="btn-outline h-9 px-3 text-sm text-destructive"
                       >
                         Remove
@@ -438,7 +471,7 @@ function BannersPage() {
                   type="date"
                   value={draft.endDate}
                   error={errors.endDate}
-                  hint="Optional — leave blank to run indefinitely."
+                  hint="Optional leave blank to run indefinitely."
                   onChange={(v) => setDraft({ ...draft, endDate: v })}
                 />
                 <SelectField

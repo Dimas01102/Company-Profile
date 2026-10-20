@@ -1,8 +1,4 @@
-// ----------------------------------------------------------------------------
-// MOCK DATA — replace each export with a real API call when wiring Laravel.
-// Every function/object here is a placeholder; preserve the shapes.
-// ----------------------------------------------------------------------------
-
+import { api, ApiError } from "@/lib/api-client";
 import productTransformer from "@/assets/product-transformer-1.jpg";
 import productSwitchgear from "@/assets/product-switchgear.jpg";
 import productGenerator from "@/assets/product-generator.jpg";
@@ -38,7 +34,6 @@ export const company = {
     { day: "Sunday & Public Holidays", hours: "Closed" },
   ],
   mapEmbed: "https://www.google.com/maps?q=Kawasan+Industri+Batamindo+Batam+Indonesia&output=embed",
-  linkedin: "https://www.linkedin.com/company/batam-konektra-jaya",
 };
 
 export type Stat = { value: string; suffix?: string; label: string };
@@ -55,7 +50,7 @@ export type Product = {
   name: string;
   category: string;
   brand: string;
-  availability: "In Stock" | "Made to Order" | "Pre-Order";
+  availability: "Available" | "Limited Stock" | "Out of Stock";
   shortDescription: string;
   image: string;
   gallery?: string[];
@@ -64,6 +59,16 @@ export type Product = {
   specs?: { label: string; value: string }[];
   applications?: string[];
   standards?: string[];
+  brochure?: string;
+  datasheet?: string;
+  sku?: string;
+  model?: string;
+  advantages?: string[];
+  industries?: string[];
+  metaTitle?: string;
+  metaDescription?: string;
+  keywords?: string;
+  ogImage?: string;
 };
 
 export const productCategories = [
@@ -82,7 +87,7 @@ export const productBrands = [
   "Cummins",
 ] as const;
 
-export const productAvailabilities = ["In Stock", "Made to Order", "Pre-Order"] as const;
+export const productAvailabilities = ["Available", "Limited Stock", "Out of Stock"] as const;
 
 const commonGallery = [gallery1, gallery2, gallery3, gallery4];
 
@@ -115,7 +120,7 @@ export const products: Product[] = [
     name: "Oil-Immersed Distribution Transformer 1000 kVA",
     category: "Transformers",
     brand: "Konektra",
-    availability: "Made to Order",
+    availability: "Limited Stock",
     shortDescription:
       "Three-phase 20 kV / 0.4 kV ONAN transformer for utility and industrial substations.",
     image: productTransformer,
@@ -123,10 +128,10 @@ export const products: Product[] = [
   {
     id: "p-002",
     slug: "lv-switchgear-panel-mns",
-    name: "Low-Voltage Switchgear Panel — MNS Type",
+    name: "Low-Voltage Switchgear Panel, MNS Type",
     category: "Switchgear",
     brand: "ABB",
-    availability: "In Stock",
+    availability: "Available",
     shortDescription:
       "Form 4b withdrawable LV panel up to 6300 A, fully type-tested to IEC 61439-2.",
     image: productSwitchgear,
@@ -137,7 +142,7 @@ export const products: Product[] = [
     name: "Industrial Diesel Generator Set 500 kVA",
     category: "Generators",
     brand: "Perkins",
-    availability: "In Stock",
+    availability: "Available",
     shortDescription:
       "Prime-rated genset with Perkins engine, Stamford alternator, and AMF control panel.",
     image: productGenerator,
@@ -148,7 +153,7 @@ export const products: Product[] = [
     name: "Copper Busbar Trunking System 2500 A",
     category: "Power Distribution",
     brand: "Schneider Electric",
-    availability: "Made to Order",
+    availability: "Limited Stock",
     shortDescription:
       "Sandwich-type busway for vertical risers and horizontal feeders in commercial buildings.",
     image: productBusbar,
@@ -159,7 +164,7 @@ export const products: Product[] = [
     name: "Cast-Resin Dry-Type Transformer 1600 kVA",
     category: "Transformers",
     brand: "Siemens",
-    availability: "Pre-Order",
+    availability: "Out of Stock",
     shortDescription:
       "Indoor cast-resin transformer with F1 fire class, suitable for data centers and high-rises.",
     image: productTransformer,
@@ -170,7 +175,7 @@ export const products: Product[] = [
     name: "Medium-Voltage Ring Main Unit 12 kV",
     category: "Switchgear",
     brand: "Schneider Electric",
-    availability: "In Stock",
+    availability: "Available",
     shortDescription: "Compact SF6-insulated RMU for secondary distribution networks up to 24 kV.",
     image: productSwitchgear,
   },
@@ -180,7 +185,7 @@ export const products: Product[] = [
     name: "AMF / ATS Control Panel",
     category: "Power Distribution",
     brand: "Konektra",
-    availability: "Made to Order",
+    availability: "Limited Stock",
     shortDescription:
       "Automatic mains failure and transfer switch panel with PLC-based controller and HMI.",
     image: productBusbar,
@@ -191,7 +196,7 @@ export const products: Product[] = [
     name: "Industrial Diesel Generator Set 1000 kVA",
     category: "Generators",
     brand: "Cummins",
-    availability: "Made to Order",
+    availability: "Limited Stock",
     shortDescription: "Sound-attenuated container genset for offshore platforms and remote sites.",
     image: productGenerator,
   },
@@ -201,7 +206,7 @@ export const products: Product[] = [
     name: "Power Transformer 5000 kVA / 33 kV",
     category: "Transformers",
     brand: "Siemens",
-    availability: "Pre-Order",
+    availability: "Out of Stock",
     shortDescription:
       "Two-winding oil-immersed power transformer for step-down substations up to 36 kV.",
     image: productTransformer,
@@ -212,7 +217,7 @@ export const products: Product[] = [
     name: "Vacuum Circuit Breaker 24 kV",
     category: "Switchgear",
     brand: "ABB",
-    availability: "In Stock",
+    availability: "Available",
     shortDescription:
       "Withdrawable indoor VCB with electronic trip relay and integrated protection.",
     image: productSwitchgear,
@@ -223,7 +228,7 @@ export const products: Product[] = [
     name: "Automatic Capacitor Bank Panel 400 kVAr",
     category: "Power Distribution",
     brand: "Konektra",
-    availability: "Made to Order",
+    availability: "Limited Stock",
     shortDescription:
       "Detuned capacitor bank with intelligent PFR controller for reactive power compensation.",
     image: productBusbar,
@@ -234,7 +239,7 @@ export const products: Product[] = [
     name: "Compact Diesel Generator Set 250 kVA",
     category: "Generators",
     brand: "Perkins",
-    availability: "In Stock",
+    availability: "Available",
     shortDescription:
       "Compact standby genset for commercial buildings and telecom sites, silent canopy.",
     image: productGenerator,
@@ -293,6 +298,10 @@ export type NewsArticle = {
   image: string;
   featured?: boolean;
   tags?: string[];
+  gallery?: string[];
+  metaTitle?: string;
+  metaDescription?: string;
+  metaKeywords?: string;
 };
 
 export const newsCategories = [
@@ -453,7 +462,13 @@ export const galleryImages: GalleryItem[] = [
     album: "Projects",
     span: "lg",
   },
-  { id: "g-5", src: news1, alt: "Data center electrical room", album: "Projects", span: "md" },
+  {
+    id: "g-5",
+    src: news1,
+    alt: "Data center electrical room",
+    album: "Projects",
+    span: "md",
+  },
   {
     id: "g-6",
     src: news3,
@@ -578,7 +593,7 @@ export const whyChooseUs = [
   },
 ];
 
-// ---- Placeholder API functions — replace internals with real fetches later ----
+// ---- Placeholder API functions, replace internals with real fetches later ----
 export async function fetchProducts(): Promise<Product[]> {
   return products;
 }
@@ -653,11 +668,36 @@ export function relatedProducts(current: Product, limit = 3): Product[] {
 export async function fetchLatestNews(): Promise<NewsArticle[]> {
   return news;
 }
-export async function submitInquiry(_payload: unknown): Promise<{ ok: boolean }> {
-  // TODO: POST /api/inquiries
-  return { ok: true };
+export async function submitInquiry(payload: {
+  name: string;
+  company?: string;
+  email: string;
+  phone?: string;
+  subject: string;
+  message: string;
+  source: "Product Detail" | "Request Quotation";
+  productSlug?: string;
+}): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await api.post("/inquiries", payload);
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof ApiError) return { ok: false, message: e.firstError() ?? e.message };
+    return {
+      ok: false,
+      message: "Could not reach the server. Please try again.",
+    };
+  }
 }
-export async function submitContact(_payload: unknown): Promise<{ ok: boolean }> {
-  // TODO: POST /api/contacts
-  return { ok: true };
+export async function submitContact(payload: unknown): Promise<{ ok: boolean; message?: string }> {
+  try {
+    await api.post("/contact", payload);
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof ApiError) return { ok: false, message: e.firstError() ?? e.message };
+    return {
+      ok: false,
+      message: "Could not reach the server. Please try again.",
+    };
+  }
 }

@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { WebsiteLocation } from "@/components/admin/WebsiteLocation";
+import { FileImage } from "@/components/admin/FileImage";
 import { useAdminUser } from "@/components/admin/admin-context";
 import { ProductPreview } from "@/components/admin/ProductPreview";
 import {
@@ -51,22 +53,26 @@ import {
   warehouses,
   productStatuses,
   availabilities,
+  getCategories,
   type AdminProduct,
 } from "@/lib/catalog-service";
-import { productCategories } from "@/lib/mock-data";
+import { getErrorMessage } from "@/lib/api-client";
 
 export const Route = createFileRoute("/admin/products")({
   head: () => ({
     meta: [
-      { title: "Products — Konektra Admin Console" },
+      { title: "Products | Konektra Admin Console" },
       {
         name: "description",
         content:
           "Manage the industrial product catalog of PT Batam Konektra Jaya: specifications, media, and publication status.",
       },
       { name: "robots", content: "noindex, nofollow" },
-      { property: "og:title", content: "Products — Konektra Admin Console" },
-      { property: "og:description", content: "Industrial product catalog management." },
+      { property: "og:title", content: "Products | Konektra Admin Console" },
+      {
+        property: "og:description",
+        content: "Industrial product catalog management.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -74,7 +80,9 @@ export const Route = createFileRoute("/admin/products")({
   component: ProductsPage,
 });
 
-type Draft = Omit<AdminProduct, "id"> & { id?: string };
+type Draft = Omit<AdminProduct, "id" | "createdAt" | "updatedAt"> & {
+  id?: string;
+};
 type SortKey = "updated" | "created" | "name" | "stock";
 const sortOptions = [
   "Recently updated",
@@ -131,6 +139,7 @@ function ProductsPage() {
   const user = useAdminUser();
   const [rows, setRows] = useState<AdminProduct[] | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [categoryNames, setCategoryNames] = useState<string[]>([]);
 
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All categories");
@@ -145,7 +154,12 @@ function ProductsPage() {
   const [section, setSection] = useState<(typeof formSections)[number]>("Basic information");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState<string | null>(null);
+  const [mainImageFile, setMainImageFile] = useState<File | null>(null);
+  const [ogImageFile, setOgImageFile] = useState<File | null>(null);
+  const [brochureFile, setBrochureFile] = useState<File | null>(null);
+  const [datasheetFile, setDatasheetFile] = useState<File | null>(null);
+  const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
+  const [removeGalleryIds, setRemoveGalleryIds] = useState<string[]>([]);
   const [preview, setPreview] = useState<Draft | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AdminProduct | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -156,6 +170,12 @@ function ProductsPage() {
     getProducts()
       .then(setRows)
       .catch(() => setLoadError(true));
+    getCategories()
+      .then((cats) => setCategoryNames(cats.map((c) => c.name)))
+      .catch(() => {
+        // Category dropdown just stays empty if this fails; product
+        // loading/error state above is unaffected.
+      });
   }
 
   useEffect(load, []);
@@ -197,19 +217,31 @@ function ProductsPage() {
   const current = Math.min(page, totalPages);
   const pageRows = filtered.slice((current - 1) * perPage, current * perPage);
 
+  function resetFileState() {
+    setMainImageFile(null);
+    setOgImageFile(null);
+    setBrochureFile(null);
+    setDatasheetFile(null);
+    setGalleryFiles([]);
+    setRemoveGalleryIds([]);
+  }
+
   function openCreate() {
     setErrors({});
     setSection("Basic information");
-    setDraft(emptyProduct(productCategories[0]));
+    resetFileState();
+    setDraft(emptyProduct(categoryNames[0] ?? ""));
   }
 
   function openEdit(p: AdminProduct) {
     setErrors({});
     setSection("Basic information");
+    resetFileState();
     setDraft({
       ...p,
       specs: p.specs.map((s) => ({ ...s })),
       gallery: [...p.gallery],
+      galleryIds: [...p.galleryIds],
       relatedIds: [...p.relatedIds],
     });
   }
@@ -232,7 +264,7 @@ function ProductsPage() {
       e.minStock = "Minimum stock cannot be negative.";
     if (d.status === "Published" && !d.description.trim())
       e.description = "A full description is required before publishing.";
-    if (d.status === "Published" && !d.mainImage)
+    if (d.status === "Published" && !d.mainImage && !mainImageFile)
       e.mainImage = "A main product image is required before publishing.";
     return e;
   }
@@ -255,21 +287,29 @@ function ProductsPage() {
     }
     setSaving(true);
     const { id, ...payload } = draft;
+    const files = {
+      mainImageFile: mainImageFile ?? undefined,
+      ogImageFile: ogImageFile ?? undefined,
+      brochureFile: brochureFile ?? undefined,
+      datasheetFile: datasheetFile ?? undefined,
+      galleryFiles,
+      removeGalleryIds,
+    };
     try {
       if (id) {
-        const updated = await updateProduct(id, payload);
+        const updated = await updateProduct(id, payload, files);
         setRows((prev) => (prev ?? []).map((p) => (p.id === id ? updated : p)));
         toast.success("Product updated.");
         if (thenPreview) setPreview(updated);
       } else {
-        const created = await createProduct(payload);
+        const created = await createProduct(payload, files);
         setRows((prev) => [created, ...(prev ?? [])]);
         toast.success("Product created.");
         if (thenPreview) setPreview(created);
       }
       setDraft(null);
-    } catch {
-      toast.error("Could not save the product. Please try again.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not save the product. Please try again."));
     } finally {
       setSaving(false);
     }
@@ -283,30 +323,17 @@ function ProductsPage() {
       setRows((prev) => (prev ?? []).filter((p) => p.id !== deleteTarget.id));
       toast.success("Product deleted.");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Could not delete the product.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Could not delete the product."));
     } finally {
       setDeleting(false);
     }
   }
 
-  function mockUpload(field: "mainImage" | "brochure" | "datasheet" | "ogImage" | "gallery") {
-    if (!draft) return;
-    setUploading(field);
-    setTimeout(() => {
-      const base = draft.slug || slugify(draft.name) || "product";
-      if (field === "gallery")
-        setDraft((d) =>
-          d ? { ...d, gallery: [...d.gallery, `${base}-gallery-${d.gallery.length + 1}.jpg`] } : d,
-        );
-      else if (field === "brochure")
-        setDraft((d) => (d ? { ...d, brochure: `brochure-${base}.pdf` } : d));
-      else if (field === "datasheet")
-        setDraft((d) => (d ? { ...d, datasheet: `datasheet-${base}.pdf` } : d));
-      else setDraft((d) => (d ? { ...d, [field]: `${base}-${field}.jpg` } : d));
-      setUploading(null);
-      toast.success("File uploaded.");
-    }, 900);
+  function handleGalleryFiles(files: FileList | null) {
+    if (!files || !draft) return;
+    const list = Array.from(files);
+    setGalleryFiles((prev) => [...prev, ...list]);
   }
 
   const draftAvailability = draft ? computeAvailability(draft.stock, draft.minStock) : "Available";
@@ -320,6 +347,7 @@ function ProductsPage() {
       />
 
       <div className="space-y-6 p-5 lg:p-8">
+        <WebsiteLocation feature="products" />
         <Panel padded={false}>
           <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <div>
@@ -352,7 +380,7 @@ function ProductsPage() {
             </div>
             {(
               [
-                [category, setCategory, ["All categories", ...productCategories]],
+                [category, setCategory, ["All categories", ...categoryNames]],
                 [brand, setBrand, ["All brands", ...brands]],
                 [availability, setAvailability, ["All availability", ...availabilities]],
                 [status, setStatus, ["All statuses", ...productStatuses]],
@@ -397,7 +425,7 @@ function ProductsPage() {
           {rows !== null && !loadError && filtered.length > 0 && (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1080px] text-sm">
+                <table className="w-full min-w-270 text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/50 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-3">Image</th>
@@ -598,7 +626,11 @@ function ProductsPage() {
                       value={draft.name}
                       error={errors.name}
                       onChange={(v) =>
-                        setDraft({ ...draft, name: v, slug: draft.id ? draft.slug : slugify(v) })
+                        setDraft({
+                          ...draft,
+                          name: v,
+                          slug: draft.id ? draft.slug : slugify(v),
+                        })
                       }
                     />
                     <Field
@@ -622,7 +654,7 @@ function ProductsPage() {
                     <SelectField
                       label="Category"
                       value={draft.category}
-                      options={productCategories}
+                      options={categoryNames}
                       onChange={(v) => setDraft({ ...draft, category: v })}
                     />
                     <SelectField
@@ -675,7 +707,12 @@ function ProductsPage() {
                       label="Status"
                       value={draft.status}
                       options={productStatuses}
-                      onChange={(v) => setDraft({ ...draft, status: v as AdminProduct["status"] })}
+                      onChange={(v) =>
+                        setDraft({
+                          ...draft,
+                          status: v as AdminProduct["status"],
+                        })
+                      }
                     />
                   </div>
                   <div className="border border-border bg-muted/40 p-4 text-sm">
@@ -695,7 +732,7 @@ function ProductsPage() {
               {section === "Specifications" && (
                 <div className="space-y-4">
                   <p className="text-xs text-muted-foreground">
-                    Add any specification rows this product needs — different product lines use
+                    Add any specification rows this product needs, different product lines use
                     different technical data.
                   </p>
                   <div className="space-y-2">
@@ -724,7 +761,10 @@ function ProductsPage() {
                         <button
                           type="button"
                           onClick={() =>
-                            setDraft({ ...draft, specs: draft.specs.filter((_, x) => x !== i) })
+                            setDraft({
+                              ...draft,
+                              specs: draft.specs.filter((_, x) => x !== i),
+                            })
                           }
                           aria-label="Remove specification"
                           className="btn-icon h-10 w-10 text-destructive"
@@ -737,7 +777,10 @@ function ProductsPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      setDraft({ ...draft, specs: [...draft.specs, { label: "", value: "" }] })
+                      setDraft({
+                        ...draft,
+                        specs: [...draft.specs, { label: "", value: "" }],
+                      })
                     }
                     className="btn-outline h-9 px-3 text-sm"
                   >
@@ -802,7 +845,11 @@ function ProductsPage() {
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
-                      mockUpload("mainImage");
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) {
+                        setMainImageFile(file);
+                        setDraft({ ...draft, mainImage: file.name });
+                      }
                     }}
                     className={`border border-dashed p-5 ${
                       errors.mainImage ? "border-destructive" : "border-border"
@@ -811,12 +858,19 @@ function ProductsPage() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div className="h-16 w-16 overflow-hidden bg-primary/10">
-                          {draft.mainImage && (
-                            <img
-                              src={draft.mainImage}
-                              alt=""
+                          {mainImageFile ? (
+                            <FileImage
+                              file={mainImageFile}
                               className="h-full w-full object-cover"
                             />
+                          ) : (
+                            draft.mainImage && (
+                              <img
+                                src={draft.mainImage}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            )
                           )}
                         </div>
                         <div>
@@ -824,29 +878,37 @@ function ProductsPage() {
                             Main product image
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {draft.mainImage ||
+                            {mainImageFile?.name ||
+                              draft.mainImage ||
                               "Drag & drop or choose a JPG/PNG, min 1200 × 900 px."}
                           </p>
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => mockUpload("mainImage")}
-                          disabled={uploading === "mainImage"}
-                          className="btn-outline h-9 px-3 text-sm"
-                        >
-                          {uploading === "mainImage" ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Upload className="h-4 w-4" />
-                          )}
+                        <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                          <Upload className="h-4 w-4" />
                           {draft.mainImage ? "Replace" : "Choose file"}
-                        </button>
-                        {draft.mainImage && (
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setMainImageFile(file);
+                                setDraft({ ...draft, mainImage: file.name });
+                              }
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                        {(mainImageFile || draft.mainImage) && (
                           <button
                             type="button"
-                            onClick={() => setDraft({ ...draft, mainImage: "" })}
+                            onClick={() => {
+                              setMainImageFile(null);
+                              setDraft({ ...draft, mainImage: "" });
+                            }}
                             className="btn-outline h-9 px-3 text-sm text-destructive"
                           >
                             Remove
@@ -854,11 +916,6 @@ function ProductsPage() {
                         )}
                       </div>
                     </div>
-                    {uploading === "mainImage" && (
-                      <div className="mt-3 h-1 w-full bg-border">
-                        <div className="h-1 w-2/3 animate-pulse bg-secondary" />
-                      </div>
-                    )}
                     {errors.mainImage && (
                       <p className="mt-2 text-xs text-destructive">{errors.mainImage}</p>
                     )}
@@ -869,40 +926,61 @@ function ProductsPage() {
                       <div>
                         <p className="text-sm font-semibold text-foreground">Image gallery</p>
                         <p className="text-xs text-muted-foreground">
-                          {draft.gallery.length} additional images
+                          {draft.gallery.length - removeGalleryIds.length + galleryFiles.length}{" "}
+                          additional images. New images are uploaded when you press Save.
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => mockUpload("gallery")}
-                        disabled={uploading === "gallery"}
-                        className="btn-outline h-9 px-3 text-sm"
-                      >
-                        {uploading === "gallery" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Upload className="h-4 w-4" />
-                        )}
+                      <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                        <Upload className="h-4 w-4" />
                         Add images
-                      </button>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            handleGalleryFiles(e.target.files);
+                            // Reset so the same files can be chosen again.
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
                     </div>
-                    {draft.gallery.length > 0 && (
+                    {draft.gallery.length + galleryFiles.length > 0 && (
                       <div className="mt-4 flex flex-wrap gap-3">
-                        {draft.gallery.map((g, i) => (
+                        {draft.gallery.map((url, i) =>
+                          removeGalleryIds.includes(draft.galleryIds[i]) ? null : (
+                            <div
+                              key={draft.galleryIds[i]}
+                              className="relative h-20 w-24 overflow-hidden border border-border bg-muted"
+                            >
+                              <img src={url} alt="" className="h-full w-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRemoveGalleryIds((prev) => [...prev, draft.galleryIds[i]])
+                                }
+                                aria-label="Remove image"
+                                className="absolute right-0 top-0 bg-destructive p-1 text-destructive-foreground"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ),
+                        )}
+                        {galleryFiles.map((file, i) => (
                           <div
-                            key={i}
-                            className="relative h-20 w-24 overflow-hidden border border-border bg-muted"
+                            key={`${file.name}-${file.size}-${i}`}
+                            className="relative h-20 w-24 overflow-hidden border border-dashed border-secondary bg-muted"
+                            title="New image"
                           >
-                            <img src={g} alt="" className="h-full w-full object-cover" />
+                            <FileImage file={file} className="h-full w-full object-cover" />
                             <button
                               type="button"
                               onClick={() =>
-                                setDraft({
-                                  ...draft,
-                                  gallery: draft.gallery.filter((_, x) => x !== i),
-                                })
+                                setGalleryFiles((prev) => prev.filter((_, x) => x !== i))
                               }
-                              aria-label="Remove image"
+                              aria-label="Remove new image"
                               className="absolute right-0 top-0 bg-destructive p-1 text-destructive-foreground"
                             >
                               <X className="h-3 w-3" />
@@ -916,10 +994,16 @@ function ProductsPage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     {(
                       [
-                        ["Brochure PDF", "brochure", draft.brochure],
-                        ["Technical datasheet PDF", "datasheet", draft.datasheet],
+                        ["Brochure PDF", "brochure", draft.brochure, brochureFile, setBrochureFile],
+                        [
+                          "Technical datasheet PDF",
+                          "datasheet",
+                          draft.datasheet,
+                          datasheetFile,
+                          setDatasheetFile,
+                        ],
                       ] as const
-                    ).map(([label, field, value]) => (
+                    ).map(([label, field, value, file, setFile]) => (
                       <div
                         key={field}
                         className="border border-dashed border-border bg-muted/40 p-4"
@@ -929,28 +1013,35 @@ function ProductsPage() {
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-foreground">{label}</p>
                             <p className="truncate text-xs text-muted-foreground">
-                              {value || "PDF up to 10 MB."}
+                              {file?.name || value || "PDF up to 10 MB."}
                             </p>
                           </div>
                         </div>
                         <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => mockUpload(field)}
-                            disabled={uploading === field}
-                            className="btn-outline h-9 px-3 text-sm"
-                          >
-                            {uploading === field ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Upload className="h-4 w-4" />
-                            )}
+                          <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                            <Upload className="h-4 w-4" />
                             {value ? "Replace" : "Upload"}
-                          </button>
+                            <input
+                              type="file"
+                              accept="application/pdf"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) {
+                                  setFile(f);
+                                  setDraft({ ...draft, [field]: f.name });
+                                }
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
                           {value && (
                             <button
                               type="button"
-                              onClick={() => setDraft({ ...draft, [field]: "" })}
+                              onClick={() => {
+                                setFile(null);
+                                setDraft({ ...draft, [field]: "" });
+                              }}
                               className="btn-outline h-9 px-3 text-sm text-destructive"
                             >
                               Remove
@@ -997,22 +1088,26 @@ function ProductsPage() {
                       <div>
                         <p className="text-sm font-semibold text-foreground">Open Graph image</p>
                         <p className="text-xs text-muted-foreground">
-                          {draft.ogImage || "1200 × 630 px recommended."}
+                          {ogImageFile?.name || draft.ogImage || "1200 × 630 px recommended."}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => mockUpload("ogImage")}
-                        disabled={uploading === "ogImage"}
-                        className="btn-outline h-9 px-3 text-sm"
-                      >
-                        {uploading === "ogImage" ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Upload className="h-4 w-4" />
-                        )}
+                      <label className="btn-outline h-9 cursor-pointer px-3 text-sm">
+                        <Upload className="h-4 w-4" />
                         {draft.ogImage ? "Replace" : "Upload"}
-                      </button>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setOgImageFile(file);
+                              setDraft({ ...draft, ogImage: file.name });
+                            }
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
                     </div>
                   </div>
                   <div className="border border-border p-4">
@@ -1022,8 +1117,9 @@ function ProductsPage() {
                     <p className="mt-2 text-sm text-secondary">
                       {draft.metaTitle || draft.name || "Product title"}
                     </p>
-                    <p className="text-xs text-[color:oklch(0.55_0.12_145)]">
-                      batamkonektra.co.id/products/{draft.slug || "product-slug"}
+                    <p className="text-xs text-[oklch(0.55_0.12_145)]">
+                      batamkonektra.co.id/products/
+                      {draft.slug || "product-slug"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {draft.metaDescription ||
